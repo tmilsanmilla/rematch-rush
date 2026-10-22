@@ -1,0 +1,8 @@
+dist/
+node_modules/
+.DS_Store
+.openai/
+.vercel/
+.env
+.env.*
+online-qa.html
