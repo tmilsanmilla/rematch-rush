@@ -583,6 +583,38 @@ test('custom mixed teams retain configured bot slots, game settings, assigned co
   assert.deepEqual(host.settings, { duration: 120, scoreLimit: 3 });
 });
 
+test('a single-human custom bot room rematches repeatedly without a remote handshake', async t => {
+  const network = peerNetwork(), previousPeer = globalThis.Peer, ready = [];
+  globalThis.Peer = network.Peer;
+  let host;
+  host = new OnlineSession({
+    onConnected() { assert.equal(host.startRound(), true); },
+    onRematchReady() { ready.push(host.roundId); assert.equal(host.startRound(), true); },
+  });
+  t.after(() => { host.close(); globalThis.Peer = previousPeer; });
+  const config = { slots: ['human', 'bot', 'bot', 'bot'], duration: 120, scoreLimit: 3 };
+  const code = await host.create('You', 'ice', 'custom', config);
+  const peer = host.peer, players = structuredClone(host.players);
+  assert.equal(host.connected, true);
+  assert.equal(host._connections.size, 0);
+  for (let round = 1; round <= 3; round++) {
+    assert.equal(host.markRoundEnded(), true);
+    assert.equal(host.requestRematch(), true);
+    await flush();
+    assert.equal(ready.length, round);
+    assert.equal(host.roundId, round + 1);
+    assert.equal(host.requestRematch(), false, 'the restarted round must finish before another vote');
+    assert.deepEqual(host.roomConfig, config);
+    assert.deepEqual(host.settings, { duration: 120, scoreLimit: 3 });
+    assert.deepEqual(host.players, players);
+    assert.equal(host.roomCode, code);
+    assert.equal(host.peer, peer);
+  }
+  assert.equal(network.instances.length, 1);
+  assert.equal(network.connections.length, 0);
+  assert.equal(network.messages.length, 0, 'a solo room needs no remote ready packet');
+});
+
 test('custom empty slots retain original team identity and only exact human slots can join', async t => {
   const { add } = queueHarness(t), host = add(), friend = add();
   const code = await host.create('Host', 'none', 'custom', { slots: ['human', 'bot', 'human', 'empty'], duration: 600, scoreLimit: 10 });

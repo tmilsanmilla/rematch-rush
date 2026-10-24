@@ -487,8 +487,10 @@ export class OnlineSession {
     if (this.role !== 'host' || !this.connected || !this._roundEnded || !this._localRematchReady || this._rematchReady || !humanSlots(this.gameFormat, this.roomConfig).every(id => this._rematchVotes.has(id))) return;
     this._rematchReady = true;
     // Reliable ordering puts this handshake before all new-round snapshots on
-    // each channel, including when app callbacks immediately start the match.
-    if (this._send({ type: 'rematch-ready', roundId: this.roundId }) && this.connected && !this._closed) this.onRematchReady();
+    // each remote channel. A host-only custom room needs no remote handshake.
+    const hasRemoteHumans = humanSlots(this.gameFormat, this.roomConfig).some(id => id !== this.localPlayerId);
+    const announced = !hasRemoteHumans || this._send({ type: 'rematch-ready', roundId: this.roundId });
+    if (announced && this.connected && !this._closed) this.onRematchReady();
   }
 
   _assertCurrent(generation) {

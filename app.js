@@ -1,6 +1,6 @@
 import { Game } from './game.js?v=15';
 import { ROSTER, getSkills } from './characters.js?v=7';
-import { OnlineSession } from './online.js?v=7';
+import { OnlineSession } from './online.js?v=8';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
