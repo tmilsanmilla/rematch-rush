@@ -428,14 +428,27 @@ test('full-time results stay available until the player rematches or leaves', ()
   assert.equal(session.closed, true);
 });
 
-test('the cursor-lock button uses the real lock API and reports confirmed browser state', () => {
-  const app=appHarness(),calls=[];let locked=false;
-  app.setGame({stop(){},isCursorLocked:()=>locked,requestCursorLock(){calls.push('lock');locked=true;},suspendControls(){calls.push('unlock');locked=false;}});
-  app.click('cursor-lock');app.click('cursor-lock');assert.deepEqual(calls,['lock','unlock']);
-  const session=app.newOnlineSession();session.options.onConnected({role:'host',localTeam:0,remoteProfile:{username:'Rival',character:'none'}});
-  assert.equal(app.node('#cursor-lock-button').textContent,'Lock cursor');
-  app.games[0].options.onCursorLockChange(true);assert.equal(app.node('#cursor-lock-button').textContent,'Unlock cursor');
-  app.games[0].options.onCursorLockChange(false);assert.equal(app.node('#cursor-lock-button').textContent,'Lock cursor');
+test('the game UI keeps normal mouse aiming without lock buttons or crosshair instructions', () => {
+  const app=appHarness();app.click('play-bot');
+  assert.equal(app.games[0].options.onCursorLockChange, undefined);
+  const html=readFileSync(new URL('./index.html',import.meta.url),'utf8');
+  assert.doesNotMatch(html,/cursor-lock|CTRL LOCK|crosshair/i);
+  app.click('help');
+  assert.match(app.node('#modal-content').innerHTML,/Point at the pitch to choose your shot direction/);
+  assert.doesNotMatch(app.node('#modal-content').innerHTML,/lock cursor|cursor lock|crosshair/i);
+});
+
+test('character cards are ordered Common through Master, with the starter still available afterward', () => {
+  const app=appHarness();
+  const ids=[...app.node('#roster-grid').innerHTML.matchAll(/data-character="([a-z]+)"/g)].map(match=>match[1]);
+  assert.equal(ids.length, ROSTER.length);assert.equal(new Set(ids).size,ROSTER.length);
+  const ranks=['common','rare','epic','legendary','world class','master'];
+  const ranked=ids.map(id=>ROSTER.find(item=>item.id===id)).filter(item=>ranks.includes(item.rarity));
+  assert.equal(ranked[0].rarity,'common');
+  assert.deepEqual(ranked.map(item=>ranks.indexOf(item.rarity)),ranked.map(item=>ranks.indexOf(item.rarity)).sort((a,b)=>a-b));
+  assert.equal(ids.at(-1),'none');assert.equal(ROSTER[0].id,'none','render sorting must not reorder internal character defaults');
+  app.click('select-character',undefined,0,'ice');
+  assert.match(app.node('#modal-content').innerHTML,/>Ice<\/h2>/);
 });
 
 

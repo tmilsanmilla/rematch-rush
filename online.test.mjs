@@ -392,7 +392,8 @@ test('bot-team admits two humans on the same side and reserves two CPU opponents
   assert.equal(guest.localPlayerId, 2); assert.equal(guest.localTeam, 0);
   assert.equal(events[0].connected.length, 1);
   assert.deepEqual(host.players.map(player => [player.id, player.team, player.isBot]), [[0, 0, false], [1, 1, true], [2, 0, false], [3, 1, true]]);
-  assert.deepEqual(host.players.filter(player => player.isBot).map(player => player.character), ['manmarker', 'powershooter']);
+  assert.ok(host.players.filter(player => player.isBot).every(player => /^[a-z]+$/.test(player.character)));
+  assert.deepEqual(guest.players.filter(player => player.isBot).map(player => player.character),host.players.filter(player => player.isBot).map(player => player.character),'the host chooses bot characters once and shares them with every guest');
   guest.sendInput({ action: true }); await flush();
   assert.equal(events[0].input[0].playerId, 2);
   host.markRoundEnded(); guest.markRoundEnded(); host.requestRematch(); guest.requestRematch(); await flush();

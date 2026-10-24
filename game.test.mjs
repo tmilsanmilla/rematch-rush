@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Game, fitViewport, finishingChance } from './game.js';
+import { Game, fitViewport, finishingChance, MOTION_PACE } from './game.js';
 
 test('direct HUD command API activates the first ability for every equipped character', () => {
   for (const character of ['manmarker','powershooter','ninja','playmaker','streetdribbler','supersonic']) {
@@ -50,12 +50,12 @@ test('unavailable ability commands explain Characterless, kickoff, and recovery 
   assert.equal(game.pending[0].length,0);
 });
 
-test('a tap kick retains a strong launch and travels more than five hundred units in one second', () => {
+test('a tap kick retains its original power and launch while travel uses the slower physical clock', () => {
   const game=match(),p=game.state.players[0];
   Object.assign(p,{x:150,y:140,aim:{x:1130,y:140}});
   game.setOwner(p);withRandom(()=>0,()=>game.kick(p,5));
   assert.ok(Math.hypot(game.state.ball.vx,game.state.ball.vy)>=300,'tap shots need substantially higher launch speed even when their aim spreads');
-  advance(game,1);
+  advance(game,1/MOTION_PACE);
   assert.ok(Math.hypot(game.state.ball.x-p.x,game.state.ball.y-p.y)>500,'tap shots should retain enough pace to travel far');
   assert.equal(game.state.ball.power,5,'charge values retain their specified meaning');
 });
@@ -71,10 +71,10 @@ test('C performs a visible forward and sideways step-over while retaining posses
   assert.ok(p.dribble>0);
   assert.equal(game.steal(enemy,p,1),false);
   assert.ok(enemy.stun>0);
-  advance(game,.41);
+  advance(game,.41/MOTION_PACE);
   assert.equal(p.motion,null);
   assert.ok(p.recovery>0);
-  assert.ok(p.dribbleCd>1.4);
+  assert.ok(p.dribbleCd>1.3);
 });
 
 test('scoring replay includes up to ten seconds of buildup and uses the same duration for both peers', () => {
@@ -281,12 +281,12 @@ test('movement normalizes diagonal speed and possession slows movement by 20 per
   const start = { ...walking.state.players[0] };
   walking.setInput(0, { keys: { d: true, s: true } });
   advance(walking, 1);
-  near(Math.hypot(walking.state.players[0].x - start.x, walking.state.players[0].y - start.y), 194);
+  near(Math.hypot(walking.state.players[0].x - start.x, walking.state.players[0].y - start.y), 194*MOTION_PACE);
   const carrying = match();
   carrying.setOwner(carrying.state.players[0]);
   carrying.setInput(0, { keys: { d: true } });
   advance(carrying, 1);
-  near(carrying.state.players[0].x - start.x, 194 * .8);
+  near(carrying.state.players[0].x - start.x, 194 * .8*MOTION_PACE);
 });
 
 test('F tap kicks at five power, charging adds 12.5 per second, cursor controls direction', () => {
@@ -369,7 +369,7 @@ test('dribble recovery blocks movement and actions for 0.2 seconds', () => {
   game.setOwner(player);
   game.setInput(0, { action: true });
   game.update(.01);
-  advance(game, .5);
+  advance(game, .5/MOTION_PACE);
   assert.ok(player.recovery > .15);
   const x = player.x;
   game.setInput(0, { keys: { d: true }, shootRelease: true });
@@ -489,7 +489,7 @@ test('Playmaker observation changes actual movement speed, Supersonic passive is
     const player = game.state.players[0], x = player.x;
     game.setInput(0, { keys: { d: true } });
     advance(game, 1);
-    near(player.x - x, 194 * multiplier);
+    near(player.x - x, 194 * multiplier*MOTION_PACE);
   }
 });
 
@@ -510,7 +510,7 @@ test('Supersonic fourth numeric skill activates on-ball awakening world-record s
   const x = player.x;
   game.setInput(0, { keys: { d: true } });
   advance(game, .5);
-  near(player.x - x, 194 * 3 * .8 * .5);
+  near(player.x - x, 194 * 3 * .8 * .5*MOTION_PACE);
 });
 
 test('guest receives the replay when importing authoritative goal states', () => {
@@ -779,9 +779,9 @@ test('a Quick Shot preserves maximum-charge airtime instead of arriving below no
   }
 });
 
-test('the original pitch dimensions preserve the established running speed',()=>{
+test('the original pitch dimensions stay fixed while running is fifteen percent slower',()=>{
   const game=match();assert.equal(game.width,1200);assert.equal(game.height,700);
-  const p=game.state.players[0],x=p.x;game.setInput(0,{keys:{d:true}});advance(game,1);near(p.x-x,194);
+  const p=game.state.players[0],x=p.x;game.setInput(0,{keys:{d:true}});advance(game,1);near(p.x-x,194*MOTION_PACE);
   game.resetKickoff(1);assert.equal(game.state.ball.x,600);assert.equal(game.state.ball.y,350);
   assert.deepEqual(game.state.keepers.map(k=>k.x),[98,1102]);
 });
@@ -843,7 +843,7 @@ test('only explicitly scripted instant-goal specials bypass saves and keep their
     const fCount=p.shotsTaken;assert.equal(game.guaranteedGoal(p,{power:100,color:'#56aaff',air:true}),true);
     assert.equal(game.state.phase,'play');assert.ok(game.state.ball.scriptedGoal);assert.equal(p.shotsTaken,fCount+1);assert.equal(p.ultraCharge,1);
     advance(game,.3);assert.equal(game.state.phase,'play');assert.equal(game.state.ball.owner,null);assert.ok(game.state.ball.z>0);
-    advance(game,.3);assert.equal(game.state.phase,'celebrate');assert.equal(game.state.score[team],1);
+    advance(game,.3/MOTION_PACE);assert.equal(game.state.phase,'celebrate');assert.equal(game.state.score[team],1);
     assert.ok(game.goalReplay.length>=5);assert.equal(game.state.scorerTeam,team);
   }
 });
@@ -876,9 +876,9 @@ test('Trapper first-touch speed and power apply immediately, double in awakening
     assert.equal(game.shotMeter(p).power,awakened?45:25);
     assert.equal(game.captureFrame().players[0].receiptPowerBonus,awakened?40:20);
     game.setInput(0,{keys:{d:true}});const x=p.x;advance(game,.25);
-    near(p.x-x,194*(awakened?3:2)*.8*.25);
+    near(p.x-x,194*(awakened?3:2)*.8*.25*MOTION_PACE);
     game.setInput(0,{keys:{}});advance(game,2.3);assert.equal(p.receiptPowerBonus,0);
-    const before=p.x;game.setInput(0,{keys:{d:true}});advance(game,.1);near(p.x-before,194*.8*.1);
+    const before=p.x;game.setInput(0,{keys:{d:true}});advance(game,.1);near(p.x-before,194*.8*.1*MOTION_PACE);
     game.kick(p,5);assert.equal(game.state.ball.power,5);
     game.setOwner(p);game.kick(p,5);assert.equal(game.state.ball.power,awakened?45:25);
   }
@@ -887,9 +887,9 @@ test('Trapper first-touch speed and power apply immediately, double in awakening
 test('new Ninja follow-up uses its own cooldown and invincibility while the standalone dash stays vulnerable',()=>{
   const game=match('ninja'),p=game.state.players[0];game.setOwner(p);const origin=p.x;
   game.useSkill(2);game.update(.01);assert.equal(p.cooldowns[1],15);assert.equal(p.invincible,0);
-  advance(game,.36);near(p.x-origin,game.width/5);assert.ok(p.ability.precisionFollowup>0);
+  advance(game,.36/MOTION_PACE);near(p.x-origin,game.width/5);assert.ok(p.ability.precisionFollowup>0);
   const after=p.x;assert.equal(game.useSkill(2),true);game.update(.01);
-  assert.equal(p.cooldowns[1],20);assert.ok(p.invincible>.4);advance(game,.43);near(p.x-after,game.width/4);
+  assert.equal(p.cooldowns[1],20);assert.ok(p.invincible>.4);advance(game,.43/MOTION_PACE);near(p.x-after,game.width/4);
 });
 
 test('new cinematic shot windups display their promised power before releasing once',()=>{

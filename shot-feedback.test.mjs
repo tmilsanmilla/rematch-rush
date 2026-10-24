@@ -48,7 +48,8 @@ test('Ultra placement is tighter while perfect accuracy and explicit choreograph
  }
  const game=match(),p=game.state.players[0];Object.assign(p,{x:100,y:350});game.setOwner(p);
  assert.equal(withRandom(()=>.99,()=>game.guaranteedGoal(p)),true);assert.ok(game.state.ball.scriptedGoal);
- for(let i=0;i<60&&game.state.phase==='play';i++)game.updateBall(.01);assert.equal(game.state.score[0],1);
+ const travelSeconds=game.motionDuration(.55);
+ for(let i=0;i<Math.ceil(travelSeconds/.01)+1&&game.state.phase==='play';i++)game.updateBall(.01);assert.equal(game.state.score[0],1);
 });
 
 test('both power bars follow beside the player, fall back to the left, and stay readable in every viewport',()=>{

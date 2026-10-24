@@ -1,6 +1,6 @@
-import { Game } from './game.js?v=14';
-import { ROSTER, getSkills } from './characters.js?v=6';
-import { OnlineSession } from './online.js?v=6';
+import { Game } from './game.js?v=15';
+import { ROSTER, getSkills } from './characters.js?v=7';
+import { OnlineSession } from './online.js?v=7';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -56,6 +56,11 @@ let lastState = null;
 let audioContext = null;
 let shotPointer = null;
 const characterOf = id => ROSTER.find(character => character.id === (typeof id === 'object' ? id?.id : id)) || ROSTER[0];
+const rarityOrder = ['common', 'rare', 'epic', 'legendary', 'world class', 'master'];
+const orderedRoster = [...ROSTER].sort((a, b) => {
+  const rank = character => rarityOrder.includes(character.rarity) ? rarityOrder.indexOf(character.rarity) : rarityOrder.length;
+  return rank(a) - rank(b);
+});
 const rarityColors = { starter: '#85947c', common: '#83966f', rare: '#5796c0', epic: '#9974bb', legendary: '#c99b3c', 'world class': '#e65e48', master: '#6378d9' };
 const titles = { none: 'THE GAME.', manmarker: 'THE DEFENSE.', ice: 'THE FREEZE.', powershooter: 'THE FINISH.', ninja: 'THE SHADOWS.', playmaker: 'THE VISION.', falcon: 'THE SKY.', streetdribbler: 'THE RHYTHM.', magician: 'THE MAGIC.', supersonic: 'THE SPEED.', trapper: 'THE CONTROL.', serpent: 'THE HUNT.', butterflydancer: 'THE SHOW.', emperor: 'THE THRONE.' };
 const stageWords = { none: 'ROOKIE', manmarker: 'DEFEND', ice: 'ICE COLD', powershooter: 'POWER', ninja: 'UNSEEN', playmaker: 'VISION', falcon: 'SOAR', streetdribbler: 'GINGA', magician: 'SPELLBOUND', supersonic: 'VELOCITY', trapper: 'TRAP', serpent: 'UNSTOPPABLE', butterflydancer: 'SHOWTIME', emperor: 'BOW BEFORE ME' };
@@ -160,7 +165,7 @@ function renderCharacters() {
   $('#spin-button').innerHTML = UNLIMITED_SPINS || profile.spins > 0 ? `Spin for a character ${icon('arrow')}` : `All spins used ${icon('check')}`;
   for (const type of ['normal', 'lucky']) $(`#${type}-spin-odds`).innerHTML = SPIN_ODDS[type].map(([rarity, chance]) => `<div><i style="--rarity:${rarityColors[rarity]}"></i>${esc(rarity)}<b>${chance}%</b></div>`).join('');
   $('#character-skill-list').innerHTML = renderPlaybook(character);
-  $('#roster-grid').innerHTML = ROSTER.map(item => `<button class="roster-card ${item.id === selected ? 'selected' : ''} ${profile.unlocked.includes(item.id) ? '' : 'locked'}" data-action="select-character" data-character="${esc(item.id)}" style="--card-color:${rarityColors[item.rarity]}" aria-label="View ${esc(item.name)} moves${profile.unlocked.includes(item.id) ? '' : ', locked'}" aria-haspopup="dialog" aria-pressed="${item.id === selected}"><i class="card-rarity"></i>${profile.equipped === item.id ? '<span class="card-equipped">✓</span>' : profile.unlocked.includes(item.id) ? '' : '<svg class="card-lock" aria-hidden="true"><use href="#icon-lock"/></svg>'}<span class="card-art">${footballer(item, { small: true })}</span><span class="card-info"><b>${esc(item.name).toUpperCase()}</b><small>${esc(item.rarity)} · View moves ↗</small></span></button>`).join('');
+  $('#roster-grid').innerHTML = orderedRoster.map(item => `<button class="roster-card ${item.id === selected ? 'selected' : ''} ${profile.unlocked.includes(item.id) ? '' : 'locked'}" data-action="select-character" data-character="${esc(item.id)}" style="--card-color:${rarityColors[item.rarity]}" aria-label="View ${esc(item.name)} moves${profile.unlocked.includes(item.id) ? '' : ', locked'}" aria-haspopup="dialog" aria-pressed="${item.id === selected}"><i class="card-rarity"></i>${profile.equipped === item.id ? '<span class="card-equipped">✓</span>' : profile.unlocked.includes(item.id) ? '' : '<svg class="card-lock" aria-hidden="true"><use href="#icon-lock"/></svg>'}<span class="card-art">${footballer(item, { small: true })}</span><span class="card-info"><b>${esc(item.name).toUpperCase()}</b><small>${esc(item.rarity)} · View moves ↗</small></span></button>`).join('');
 }
 
 
@@ -379,25 +384,18 @@ function startMatch(mode = 'bot', connection = null) {
   $('#phase-banner').hidden = true; $('#cutscene-caption').hidden = true; $('#replay-label').hidden = true;
   $('#skip-replay').hidden = true;
   $('#awakening-status').hidden = true; $('#awakening-announcement').hidden = true;
-  updateCursorLock(false);
   game = new Game($('#game-canvas'), {
     mode, gameFormat: format, players: connection?.players, settings: connection?.settings, character: profile.equipped, username: profile.name, localTeam, localPlayerId,
-    opponentCharacter: remote?.character || (mode === 'bot' ? ['manmarker', 'powershooter'][Math.floor(Math.random() * 2)] : 'none'),
+    opponentCharacter: remote?.character,
     opponentUsername: remote?.username || 'RIVAL AI',
     onState: updateHUD,
     onInput(input) { if (mode === 'guest') online?.sendInput(input); },
     onEvent(event) { if (['kick', 'goal', 'save'].includes(event.type)) sound(event.type); },
-    onCursorLockChange: updateCursorLock,
     onEnd: matchEnded,
   });
   game.start(); $('#game-canvas').focus(); updateHUD(game.getState());
 }
-function updateCursorLock(locked = false) {
-  const button = $('#cursor-lock-button');
-  button.textContent = locked ? 'Unlock cursor' : 'Lock cursor';
-  button.setAttribute('aria-pressed', String(locked));
-  button.title = locked ? 'Tap Ctrl or press Esc to release the cursor.' : 'Tap Ctrl to toggle cursor lock. Click here, click the pitch, or press L also works.';
-}
+
 function skillRequirement(player, slot, hasBall) {
   const id = characterOf(player.character).id, awakened = player.awakened;
   const teamAvailable = lastState?.players?.some(other => other.id !== player.id && other.team === player.team);
@@ -599,7 +597,6 @@ document.addEventListener('click', event => {
   else if (action === 'tackle') { game?.useAction(); $('#game-canvas').focus(); }
   else if (action === 'pass') { game?.usePass?.(); $('#game-canvas').focus(); }
   else if (action === 'awaken') { game?.useAwakening(); $('#game-canvas').focus(); }
-  else if (action === 'cursor-lock') { if (game?.isCursorLocked?.()) game.suspendControls(); else game?.requestCursorLock?.(); $('#game-canvas').focus(); }
   else if (action === 'fullscreen') { if (document.fullscreenElement) document.exitFullscreen?.(); else $('#game-screen').requestFullscreen?.().catch(() => toast('Fullscreen is not available in this browser.')); }
 });
 document.addEventListener('submit', event => {
@@ -621,7 +618,6 @@ document.addEventListener('change', event => {
 });
 $('#modal').addEventListener('click', event => { if (event.target === $('#modal')) closeModal(); });
 window.addEventListener('keydown', event => {
-  if (event.key === 'Escape' && currentScreen === 'game' && (game?.isCursorLocked?.() || game?.cursorLocked || Number.isFinite(game?.cursorUnlockedAt) && performance.now() - game.cursorUnlockedAt < 350)) { event.preventDefault(); game?.suspendControls?.(); return; }
   if ($('#modal').hidden) { if (event.key === 'Escape' && currentScreen === 'game') { event.preventDefault(); helpModal(); } return; }
   if (event.key === 'Escape') { event.preventDefault(); closeModal(); }
   if (event.key === 'Tab') {

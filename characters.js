@@ -201,7 +201,7 @@ export function getSkills(character, awakened = false, hasBall = false) {
     ];
   }
   if (id === 'streetdribbler') {
-    if (state.rouletteFollowup > 0) skills[1] = S('Meta no prazo', 34, 'Follow-up: a vulnerable 1.5s windup, then an airborne, wildly curved 75-power shot.', { followup: true });
+    if (state.rouletteFollowup > 0) skills[1] = S('Meta no prazo', 34, 'Follow-up: a vulnerable 1s windup, then an airborne, wildly curved 75-power shot.', { followup: true });
     if (awakened) {
       skills[0] = S('Destruição total do campo', 0, 'An aggressive half-field dribble floors everyone in your path. Reach the opposing box to nutmeg the keeper and score.', { once: true, used: !!state.destructionUsed });
       skills[2] = S('Curva de horas extras', 0, 'An airborne 90-power curved shot, with 50% less accuracy.', { once: true, used: !!state.overtimeUsed });
@@ -531,8 +531,8 @@ export function activateSkill(g, p, slot) {
       later(g, .21, () => { if (g.hasBall(p)) dash(g, p, d.x, d.y, g.width * .25, .5, { invincible: true, dribble: true, color: ORANGE }); }); return true;
     }
     if (slot === 1 && a.rouletteFollowup > 0) {
-      a.rouletteFollowup = 0; a.rouletteLeft = 0; p.motion = null; p.invincible = 0; p.dribble = 0; p.afterDribble = false; cd(p, slot, 34); recover(p, 1.5); effect(g, 'charge', p, PURPLE, 1.5);
-      later(g, 1.5, () => { if (g.hasBall(p)) kick(g, p, 75, { air: true, curve: 1.05, accuracy: 1, color: PURPLE }); }); return true;
+      a.rouletteFollowup = 0; a.rouletteLeft = 0; p.motion = null; p.invincible = 0; p.dribble = 0; p.afterDribble = false; cd(p, slot, 34); recover(p, 1); effect(g, 'charge', p, PURPLE, 1);
+      later(g, 1, () => { if (g.hasBall(p)) kick(g, p, 75, { air: true, curve: 1.05, accuracy: 1, color: PURPLE }); }); return true;
     }
     if (slot === 1) {
       cd(p, slot, 24); a.rouletteFollowup = 4.5; a.rouletteLeft = .55;
@@ -835,7 +835,7 @@ export function activateAwakening(g, p) {
 }
 
 export function tickAbilities(g, p, dt) {
-  const a = ability(p), id = idOf(p);
+  const a = ability(p), id = idOf(p), motionDt = g.motionSeconds?.(dt) ?? dt;
   if (a.awakeningActive && !p.awakened) {
     if (id === 'butterflydancer') a.wingsLeft = 0;
     a.awakeningActive = false; a.recordSpeedLeft = 0; a.awaitMine = 0; a.drive = null; a.payoff = null;
@@ -879,7 +879,7 @@ export function tickAbilities(g, p, dt) {
   const traveling = g.state.ball.perfectPass;
   if (traveling && traveling.fromId === p.id) {
     const target = g.state.players.find(other => other.id === traveling.targetId);
-    traveling.left = Math.max(0, traveling.left - dt);
+    traveling.left = Math.max(0, traveling.left - motionDt);
     if (!target) g.state.ball.perfectPass = null;
     else if (traveling.left <= 0) {
       g.setOwner(target); effect(g, 'touch', target, traveling.color);
@@ -895,7 +895,7 @@ export function tickAbilities(g, p, dt) {
   }
 
   if (id === 'ice' && a.nutmeg) {
-    const data = a.nutmeg; data.left = Math.max(0, data.left - dt);
+    const data = a.nutmeg; data.left = Math.max(0, data.left - motionDt);
     if (g.state.ball.owner != null) a.nutmeg = null;
     else if (data.left <= 0) { place(g, p, data.target.x, data.target.y); p.motion = null; g.setOwner(p); a.nutmeg = null; }
     else {
@@ -915,13 +915,13 @@ export function tickAbilities(g, p, dt) {
       }
     }
     if (a.aerialDribble) {
-      a.aerialDribble.left -= dt;
+      a.aerialDribble.left -= motionDt;
       if (b.owner != null) a.aerialDribble = null;
       else if (a.aerialDribble.left <= 0) { place(g, p, a.aerialDribble.x, a.aerialDribble.y); p.motion = null; g.setOwner(p); a.aerialDribble = null; }
       else { b.z = 25 + Math.sin((1 - a.aerialDribble.left / a.aerialDribble.duration) * Math.PI) * 45; b.vz = 0; }
     }
     if (a.skyReturn) {
-      const data = a.skyReturn; data.left -= dt;
+      const data = a.skyReturn; data.left -= motionDt;
       if (b.owner != null || data.left <= 0) { b.scriptedReturn = false; a.skyReturn = null; }
       else {
         if (Math.sign(b.vx) !== Math.sign(data.lastVx)) data.bounced = true;
@@ -954,7 +954,7 @@ export function tickAbilities(g, p, dt) {
     const target = g.state.players.find(player => player.id === a.markTarget);
     if (target && !(p.stun > 0)) {
       const x = target.x + direction(target) * 45, y = target.y;
-      const amount = Math.min(1, dt * 18); place(g, p, p.x + (x - p.x) * amount, p.y + (y - p.y) * amount);
+      const amount = Math.min(1, motionDt * 18); place(g, p, p.x + (x - p.x) * amount, p.y + (y - p.y) * amount);
       p.angle = Math.atan2(target.y - p.y, target.x - p.x);
       const b = g.state.ball;
       if (b.owner == null && !protectedBall(g) && b.lastKickTeam === target.team && dist(g, p, b) < 80 && (b.z || 0) < 30) {
@@ -1248,7 +1248,7 @@ function emperorSkill(g, p, slot, awakened) {
 }
 
 function tickArrivalAbilities(g, p, dt) {
-  const a = ability(p), id = idOf(p), b = g.state.ball;
+  const a = ability(p), id = idOf(p), b = g.state.ball, motionDt = g.motionSeconds?.(dt) ?? dt;
   for (const key of ['butterflyFollowup', 'emperorFollowup', 'wingsLeft', 'butterflyStunLeft', 'baitLeft', 'ankleBoostLeft', 'reactionReady', 'reactionPromptLeft', 'reactionCooldown']) if (a[key] > 0) a[key] = Math.max(0, a[key] - dt);
   if (b.z > 1) b.hadAirtime = true;
   if (id === 'magician' || id === 'emperor') {
@@ -1271,7 +1271,7 @@ function tickArrivalAbilities(g, p, dt) {
         if (a.roseClock > 1.2) { a.roseClock = 0; roses(g, p, 2); }
       }
       if (a.magnusFlight) {
-        const flight = a.magnusFlight; flight.left -= dt;
+        const flight = a.magnusFlight; flight.left -= motionDt;
         const enteredBox = p.team === 0 ? b.x >= flight.goalBoxX : b.x <= flight.goalBoxX;
         if (enteredBox || flight.left <= 0) {
           a.magnusFlight = null; b.x = flight.goalBoxX; b.vx = 0; b.vy = 0; b.vz = 0;

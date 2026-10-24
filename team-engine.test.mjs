@@ -33,7 +33,7 @@ test('team passes travel physically and an opposing player can intercept them',(
 });
 
 test('team bots make genuine passes and move into separate supporting lanes',()=>{
- const events=[],game=match('bot-team',{onEvent:event=>events.push(event)}),[human,bot,mate,botMate]=game.state.players;
+ const events=[],game=match('bot-team',{opponentCharacter:'none',onEvent:event=>events.push(event)}),[human,bot,mate,botMate]=game.state.players;
  Object.assign(bot,{x:720,y:250});Object.assign(botMate,{x:500,y:450});Object.assign(human,{x:1000,y:120});Object.assign(mate,{x:1000,y:580});game.setOwner(bot);
  game.update(.01);assert.ok(events.some(e=>e.type==='pass'&&e.playerId===bot.id&&e.targetId===botMate.id));assert.equal(game.state.ball.owner,null);assert.equal(game.state.ball.passTarget,botMate.id);
  const start={x:bot.x,y:bot.y};advance(game,.12);assert.ok(Math.hypot(bot.x-start.x,bot.y-start.y)>0);assert.ok(Math.abs(bot.y-botMate.y)>80);
@@ -63,10 +63,10 @@ test('only the individual scorer may skip a team replay',()=>{
 
 test('Butterfly counter bonuses do not stack and Emperor power follows his current half',()=>{
  const game=match(),[dancer,enemy,emperor]=game.state.players;dancer.character='butterflydancer';emperor.character='emperor';
- game.setOwner(dancer);game.action(dancer);assert.equal(dancer.dribble,1);assert.equal(dancer.dribbleCd,1.5);
+ game.setOwner(dancer);game.action(dancer);assert.equal(dancer.dribble,game.motionDuration(1));assert.equal(dancer.dribbleCd,1.5);
  game.steal(enemy,dancer);assert.equal(dancer.ability.ankleBoostLeft,5);assert.equal(game.powerBonus(dancer),10);game.steal(enemy,dancer);assert.equal(game.powerBonus(dancer),10);
  Object.assign(emperor,{x:400,ability:{emperorChemistry:true}});assert.equal(game.powerBonus(emperor),40);emperor.x=800;assert.equal(game.powerBonus(emperor),25);
- emperor.motion=null;dancer.character='magician';game.state.ball.lastTouch=dancer.id;game.setOwner(emperor);game.action(emperor);assert.equal(emperor.dribble,.85);
+ emperor.motion=null;dancer.character='magician';game.state.ball.lastTouch=dancer.id;game.setOwner(emperor);game.action(emperor);assert.equal(emperor.dribble,game.motionDuration(.85));
 });
 
 test('special chip flight keeps its pace, is serializable, and still permits a direct keeper save',()=>{

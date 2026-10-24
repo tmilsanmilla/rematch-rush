@@ -1,3 +1,5 @@
+import { selectBotCharacter } from './bot-brain.js?v=1';
+
 /**
  * Host-authoritative one- and two-player teams over PeerJS 1.5.5 / WebRTC.
  * PeerServer Cloud only introduces the browsers; the host owns the simulation.
@@ -451,10 +453,10 @@ export class OnlineSession {
     this.roundId = 1;
     this.players = role === 'host' ? [{ id: 0, team: 0, name: this.localProfile.username, character: this.localProfile.character, isBot: false }] : [];
     if (role === 'host' && gameFormat === 'bot-team') this.players.push(
-      { id: 1, team: 1, name: 'CPU 1', character: 'manmarker', isBot: true },
-      { id: 3, team: 1, name: 'CPU 2', character: 'powershooter', isBot: true },
+      { id: 1, team: 1, name: 'CPU 1', character: selectBotCharacter(), isBot: true },
+      { id: 3, team: 1, name: 'CPU 2', character: selectBotCharacter(), isBot: true },
     );
-    if (role === 'host' && gameFormat === 'custom') for (const id of playerSlots(gameFormat, config)) if (config.slots[id] === 'bot') this.players.push({ id, team: id % 2, name: `CPU ${id + 1}`, character: ['ice', 'manmarker', 'ninja', 'powershooter'][id], isBot: true });
+    if (role === 'host' && gameFormat === 'custom') for (const id of playerSlots(gameFormat, config)) if (config.slots[id] === 'bot') this.players.push({ id, team: id % 2, name: `CPU ${id + 1}`, character: selectBotCharacter(), isBot: true });
     this.players.sort((a, b) => a.id - b.id);
     this._resetRound();
     return this._generation;

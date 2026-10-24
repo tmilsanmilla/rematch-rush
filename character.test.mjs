@@ -243,6 +243,8 @@ test('Ice needs a teammate under the cursor and nutmegs a close opponent with pr
   assert(game.state.ball.x > 700);
   assert.equal(game.state.ball.owner, null);
   advance(game, .3);
+  assert.equal(game.state.ball.owner, null, 'the slowed nutmeg is still traveling at 0.6 real seconds');
+  advance(game, .05);
   assert.equal(game.state.ball.owner, player.id);
   assert(player.x > enemy.x);
 });
@@ -321,6 +323,8 @@ test('Falcon aerial dribble regains possession and Sky domination never scores',
   assert.equal(activateSkill(game, player, 2), true);
   assert.equal(game.state.ball.x, start + game.width / 3);
   advance(game, .75);
+  assert.equal(game.state.ball.owner, null, 'Falcon cannot catch the ball before his paced dash finishes');
+  advance(game, .05);
   assert.equal(game.state.ball.owner, player.id);
   assert.equal(player.x, start + game.width / 3);
   awakenDirectly(player);
@@ -439,6 +443,8 @@ test('three successful Fake Volleys unlock one Juggling Destroyer goal and misse
   assert.equal(activateSkill(game, player, 2), true);
   assert.equal(player.cooldowns[2], 20);
   advance(game, .6);
+  assert.equal(game.state.score[0], 0, 'the scripted ball flight also takes the slower world pace');
+  advance(game, .08);
   assert.equal(game.state.score[0], 1);
   const missed = setup('trapper', 0);
   missed.player.ability = { fakeVolleyStreak: 2 };
@@ -464,17 +470,17 @@ test('Trapper awakened interception validates a recent opponent shot and ultimat
   assert.equal(getSkills(player, true, false)[2].used, true);
 });
 
-test('Meta no prazo immediately drops roulette invincibility throughout its shorter windup', () => {
+test('Meta no prazo immediately drops roulette invincibility throughout its one-second windup', () => {
   const { game, player, enemy } = setup('streetdribbler', 0);
   assert.equal(activateSkill(game, player, 1), true);
   assert(player.invincible > 0);
   assert.equal(activateSkill(game, player, 1), true);
-  assert.equal(player.recovery, 1.5);
+  assert.equal(player.recovery, 1);
   assert.equal(player.invincible, 0);
   assert.equal(player.dribble, 0);
   assert.equal(player.motion, null);
   assert.equal(game.steal(enemy, player), true);
-  advance(game, 1.6);
+  advance(game, 1.1);
   assert.equal(game.state.ball.owner, enemy.id);
 });
 
@@ -552,4 +558,99 @@ test('all five slots across the expanded roster remain finite and serializable',
     }
   }
   assert.equal(scenarios, ROSTER.length * 2 * 3 * 5);
+});
+
+
+for (const team of [0, 1]) test(`Street Dribbler follow-up exposes one second of windup and never shoots before it, team ${team}`, () => {
+  const kicks = [], game = new Game(null, {mode:'online',gameFormat:'standard-1v1',localTeam:team,localPlayerId:team,character:'streetdribbler',onEvent:event=>{if(event.type==='kick')kicks.push({...event,at:game.state.elapsed});}});
+  game.state.kickoff = null;
+  const player = game.localPlayer(), enemy = game.opponent(player);
+  Object.assign(player, {x:600,y:350,ability:{rouletteFollowup:4.5,rouletteLeft:.55},invincible:.55,dribble:.55,motion:{dx:1,dy:0,speed:100,left:.5}});
+  Object.assign(enemy,{x:100,y:100}); game.setOwner(player);
+  assert.match(getSkills(player,false,true)[1].description, /vulnerable 1s windup/);
+  assert.equal(game.activateMeteredSkill(player,1),true);
+  assert.equal(player.recovery,1); assert.equal(player.invincible,0); assert.equal(player.dribble,0); assert.equal(player.motion,null);
+  assert.equal(player.shotWindup.duration,1); assert.equal(player.shotWindup.left,1); assert.equal(game.shotMeter(player).power,75);
+  const charge = game.effects.find(effect=>effect.type==='charge'); assert.equal(charge.total,1); assert.equal(charge.left,1);
+  assert.equal(game.tasks.length,1); assert.equal(game.tasks[0].left,1);
+  advance(game,.99); assert.equal(kicks.length,0); assert.equal(game.hasBall(player),true); assert.ok(game.shotMeter(player).fill>.98);
+  game.update(.009); assert.equal(kicks.length,0); assert.equal(game.hasBall(player),true);
+  game.update(.002); assert.equal(kicks.length,1); assert.ok(game.state.elapsed>=1&&game.state.elapsed<1.01); assert.equal(kicks[0].power,75);
+  assert.equal(player.shotWindup,null); assert.equal(player.ultraCharge,1); assert.equal(game.shotMeter(player).label,'SHOT');
+  advance(game,.6); assert.equal(kicks.length,1,'the old one-and-a-half-second task must not release a second shot');
+});
+
+test('perfect-pass flight follows the slower world pace while its aura window uses real seconds', () => {
+  const game = new Game(null, {mode:'online',gameFormat:'standard-2v2',character:'magician'});
+  game.state.kickoff = null;
+  const player = game.localPlayer(), mate = game.state.players.find(other=>other.id!==player.id&&other.team===player.team);
+  Object.assign(player,{x:200,y:250}); Object.assign(mate,{x:800,y:250}); game.setOwner(player);
+  assert.equal(activateSkill(game,player,1),true);
+  const flight = game.state.ball.perfectPass, duration = flight.duration;
+  tickAbilities(game,player,.1);
+  assert.ok(Math.abs(flight.left-(duration-.085))<1e-9);
+  assert.ok(Math.abs(game.state.ball.x-(200+600*.085/duration))<1e-9);
+  assert.ok(Math.abs(player.ability.auraLeft-.9)<1e-9,'the visual ability window still advances by the full real tenth of a second');
+  assert.equal(player.ultraCharge,1,'flight progress does not add a second kick');
+  tickAbilities(game,player,duration-.1);
+  assert.equal(game.state.ball.owner,null,'the pass cannot snap to its receiver at the old unpaced deadline');
+  tickAbilities(game,player,duration/.85-duration+.001);
+  assert.equal(game.state.ball.owner,mate.id);
+});
+
+test('Ice nutmeg ball progress uses paced travel without stretching its follow-up clock', () => {
+  const {game,player,enemy} = setup('ice',0);
+  Object.assign(player,{x:300,y:350}); Object.assign(enemy,{x:380,y:350});
+  assert.equal(activateSkill(game,player,1),true);
+  const route = player.ability.nutmeg, origin = {...route.origin}, target = {...route.target};
+  player.ability.precisionFollowup = 2;
+  tickAbilities(game,player,.26);
+  assert.ok(Math.abs(route.left-(.52-.26*.85))<1e-9);
+  assert.ok(Math.abs(game.state.ball.x-(origin.x+(target.x-origin.x)*.425))<1e-9);
+  assert.ok(Math.abs(player.ability.precisionFollowup-1.74)<1e-9);
+  tickAbilities(game,player,.26);
+  assert.equal(game.state.ball.owner,null,'the ball stays on its paced route at the old travel deadline');
+  tickAbilities(game,player,.1);
+  assert.equal(game.state.ball.owner,player.id);
+  assert.equal(player.ability.nutmeg,null);
+});
+
+test('Falcon aerial-dribble and return travel deadlines match paced motion rather than logical windows', () => {
+  const {game,player} = setup('falcon',0);
+  assert.equal(activateSkill(game,player,2),true);
+  const aerial = player.ability.aerialDribble;
+  tickAbilities(game,player,.65);
+  assert.ok(Math.abs(aerial.left-(.65-.65*.85))<1e-9);
+  assert.equal(game.state.ball.owner,null);
+  tickAbilities(game,player,.12);
+  assert.equal(game.state.ball.owner,player.id);
+  awakenDirectly(player); player.cooldowns[2]=0;
+  assert.equal(activateSkill(game,player,2),true);
+  const returning = player.ability.skyReturn;
+  tickAbilities(game,player,.5);
+  assert.ok(Math.abs(returning.left-2.575)<1e-9);
+  assert.ok(Math.abs(player.ability.auraLeft-2.5)<1e-9);
+});
+
+test('MANMARK smooth tracking slows by fifteen percent and retains its five-second ability window', () => {
+  const {game,player,enemy} = setup('manmarker',1);
+  Object.assign(player,{x:300,y:250}); Object.assign(enemy,{x:450,y:350});
+  assert.equal(activateSkill(game,player,1),true);
+  const start = {x:player.x,y:player.y}, target = {x:enemy.x-45,y:enemy.y};
+  tickAbilities(game,player,.02);
+  assert.ok(Math.abs(player.x-(start.x+(target.x-start.x)*.02*.85*18))<1e-9);
+  assert.ok(Math.abs(player.y-(start.y+(target.y-start.y)*.02*.85*18))<1e-9);
+  assert.ok(Math.abs(player.ability.markLeft-4.98)<1e-9);
+});
+
+test('Magnus physical-flight fallback does not teleport the ball early at its old deadline', () => {
+  const {game,player} = setup('emperor'); awakenDirectly(player);
+  player.ability.magnusFlight={left:.2,goalBoxX:984};
+  Object.assign(game.state.ball,{x:600,y:350,owner:null,magnusFlight:true,scriptedReturn:true});
+  tickAbilities(game,player,.2);
+  assert.ok(Math.abs(player.ability.magnusFlight.left-.03)<1e-9);
+  assert.equal(game.state.phase,'play'); assert.equal(game.state.ball.x,600);
+  tickAbilities(game,player,.04);
+  assert.equal(player.ability.magnusFlight,null);
+  assert.equal(game.state.phase,'cutscene'); assert.equal(game.state.ball.x,984);
 });

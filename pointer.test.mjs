@@ -1,171 +1,121 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {Game} from './game.js';
+import {Game,fitViewport} from './game.js';
 
-function event(type, fields={}) { const value=new Event(type,{cancelable:true});for(const [name,data] of Object.entries(fields))Object.defineProperty(value,name,{value:data});return value; }
-function fixture(mode='online') {
- const previousWindow=globalThis.window, win=new EventTarget(), doc=new EventTarget(), canvas=new EventTarget(), sent=[],locks=[];
- globalThis.window=win;
- let measurements=0,requests=0;
- Object.assign(canvas,{ownerDocument:doc,getContext:()=>null,getBoundingClientRect:()=>{measurements++;return {left:20,top:40,width:1200,height:700};},requestPointerLock(){requests++;doc.pointerLockElement=canvas;doc.dispatchEvent(new Event('pointerlockchange'));}});
- doc.exitPointerLock=()=>{doc.pointerLockElement=null;doc.dispatchEvent(new Event('pointerlockchange'));};
- const game=new Game(canvas,{mode,onInput:input=>sent.push(input),onCursorLockChange:locked=>locks.push(locked)});game.state.kickoff=null;game.bind();
- return {game,win,doc,canvas,sent,locks,get measurements(){return measurements;},get requests(){return requests;},close(){game.stop();if(previousWindow===undefined)delete globalThis.window;else globalThis.window=previousWindow;}};
+function event(type,fields={}){const value=new Event(type,{cancelable:true});for(const [name,data] of Object.entries(fields))Object.defineProperty(value,name,{value:data});return value;}
+function fixture(mode='online',initial={}){
+ const previousWindow=globalThis.window,win=new EventTarget(),doc=new EventTarget(),canvas=new EventTarget(),sent=[];globalThis.window=win;
+ let measurements=0,requests=0,rect={left:20,top:40,width:1200,height:700,...initial};
+ Object.assign(canvas,{ownerDocument:doc,getContext:()=>null,getBoundingClientRect:()=>{measurements++;return {...rect};},requestPointerLock(){requests++;throw new Error('Pointer lock must never be requested.');}});
+ const game=new Game(canvas,{mode,onInput:input=>sent.push(input)});game.state.kickoff=null;game.bind();
+ return {game,win,doc,canvas,sent,get measurements(){return measurements;},get requests(){return requests;},resize(value){Object.assign(rect,value);},close(){game.stop();if(previousWindow===undefined)delete globalThis.window;else globalThis.window=previousWindow;}};
 }
+const own=f=>{const p=f.game.localPlayer();Object.assign(p,{x:400,y:350});f.game.setOwner(p);return p;};
 
-test('real cursor-lock state uses relative document movement while ignoring duplicate absolute pointer events',()=>{
+test('free absolute mouse aiming follows the ordinary pointer without requesting lock or using relative movement',()=>{
  const f=fixture('guest');try{
-  assert.equal(f.game.requestCursorLock(),true);assert.equal(f.requests,1);assert.equal(f.game.isCursorLocked(),true);assert.deepEqual(f.locks,[true]);
-  const origin={...f.game.localInput.aim};
-  f.doc.dispatchEvent(event('mousemove',{movementX:-30,movementY:15,clientX:0,clientY:0}));
-  assert.deepEqual(f.game.localInput.aim,{x:origin.x-30,y:origin.y+15});
-  f.canvas.dispatchEvent(event('pointermove',{clientX:0,clientY:0}));
-  assert.equal(f.game.localInput.aim.x,origin.x-30);assert.equal(f.sent.length,0);
-  f.game.flushAimInput(0);assert.equal(f.sent.length,1);assert.equal(f.sent[0].aim.x,origin.x-30);
-  f.game.requestCursorLock();assert.equal(f.requests,1,'an active lock is not requested again');
+  f.canvas.dispatchEvent(event('pointermove',{pointerType:'mouse',clientX:850,clientY:200,movementX:-999,movementY:999}));
+  assert.deepEqual(f.game.localInput.aim,{x:830,y:160});
+  f.doc.dispatchEvent(event('mousemove',{movementX:200,movementY:-200}));assert.deepEqual(f.game.localInput.aim,{x:830,y:160});
+  assert.equal(f.requests,0);assert.equal(f.game.requestCursorLock,undefined);assert.equal(f.game.isCursorLocked,undefined);assert.equal(f.game.unlockCursor,undefined);
+  f.game.flushAimInput(0);assert.equal(f.sent.length,1);assert.deepEqual(f.sent[0].aim,{x:830,y:160});
  }finally{f.close();}
 });
 
-test('1,000 mouse movements update aim immediately but use at most thirty aim packets and one layout read',()=>{
+test('pointer mapping exactly follows the visible aspect-fit pitch and clamps every letterboxed edge',()=>{
+ for(const [width,height] of [[375,667],[1920,1080],[2200,500],[500,1600]]){
+  const f=fixture('guest',{left:37,top:91,width,height});try{
+   const view=fitViewport(width,height),point=(x,y)=>({clientX:37+view.x+x*view.scale,clientY:91+view.y+y*view.scale});
+   for(const [x,y] of [[0,0],[1200,700],[600,350],[170,520]]){f.canvas.dispatchEvent(event('pointermove',point(x,y)));assert.ok(Math.abs(f.game.localInput.aim.x-x)<1e-8);assert.ok(Math.abs(f.game.localInput.aim.y-y)<1e-8);}
+   f.canvas.dispatchEvent(event('pointermove',{clientX:0,clientY:0}));assert.deepEqual(f.game.localInput.aim,{x:0,y:0});
+   f.canvas.dispatchEvent(event('pointermove',{clientX:5000,clientY:5000}));assert.deepEqual(f.game.localInput.aim,{x:1200,y:700});
+  }finally{f.close();}
+ }
+});
+
+test('hidden or invalid canvas dimensions preserve a finite last aim until layout returns',()=>{
  const f=fixture('guest');try{
-  for(let i=0;i<1000;i++){
-   f.canvas.dispatchEvent(event('pointermove',{clientX:20+i,clientY:390}));
-   f.game.flushAimInput(i);
+  const aim={...f.game.localInput.aim};
+  for(const [width,height] of [[0,700],[1200,0],[NaN,700],[-1200,700],[Infinity,700]]){
+   f.resize({width,height});assert.deepEqual(f.game.pointerToPitch(900,300,true),aim);
   }
-  assert.ok(f.sent.length<=30,`${f.sent.length} aim packets`);
-  assert.equal(f.game.localInput.aim.x,999);assert.equal(f.measurements,1);
+  f.resize({width:1200,height:700});assert.deepEqual(f.game.pointerToPitch(900,300,true),{x:880,y:260});
+ }finally{f.close();}
+});
+
+test('1,000 mouse moves update aim immediately with at most thirty aim packets and one layout read',()=>{
+ const f=fixture('guest');try{
+  for(let i=0;i<1000;i++){f.canvas.dispatchEvent(event('pointermove',{pointerType:'mouse',clientX:20+i,clientY:390}));f.game.flushAimInput(i);}
+  assert.ok(f.sent.length<=30);assert.equal(f.game.localInput.aim.x,999);assert.equal(f.measurements,1);
   const before=f.sent.length;f.game.startShot();f.game.releaseShot();f.game.useAction();
-  assert.equal(f.sent.length,before+3,'presses, releases, and actions are sent immediately');
-  assert.equal(f.sent.at(-2).shootRelease,true);assert.equal(f.sent.at(-1).action,true);
-  f.game.flushAimInput(1040);assert.equal(f.sent.length,before+3,'an edge already includes the latest aim');
+  assert.equal(f.sent.length,before+3);assert.equal(f.sent.at(-2).shootRelease,true);assert.equal(f.sent.at(-1).action,true);
+  f.game.flushAimInput(1040);assert.equal(f.sent.length,before+3);assert.equal(f.requests,0);
  }finally{f.close();}
 });
 
-test('unlocking or losing focus clears movement and cancels a charged shot without accidentally kicking it',()=>{
+test('mouse press and release each refresh canvas layout and release toward the latest point without a move event',()=>{
  const f=fixture();try{
-  const p=f.game.state.players[0];f.game.setOwner(p);f.game.requestCursorLock();
-  f.game.localInput.keys={w:true};f.game.startShot();f.game.update(.01);f.game.update(.1);assert.ok(p.charging);
-  f.doc.exitPointerLock();assert.deepEqual(f.game.localInput.keys,{});assert.equal(p.charging,false);assert.equal(f.game.localInput.shootHeld,false);
-  f.game.update(.1);assert.equal(f.game.hasBall(p),true);assert.equal(p.shotsTaken,0);assert.equal(f.sent.at(-1).cancelShot,true);assert.deepEqual(f.locks,[true,false]);
-  f.game.requestCursorLock();f.game.localInput.keys={d:true};f.game.startShot();f.win.dispatchEvent(new Event('blur'));
-  assert.equal(f.game.isCursorLocked(),false);assert.deepEqual(f.game.localInput.keys,{});assert.equal(f.game.hasBall(p),true);
+  const p=own(f);f.canvas.dispatchEvent(event('pointermove',{clientX:500,clientY:200}));assert.equal(f.measurements,1);
+  f.resize({left:100,top:80,width:600,height:350});
+  f.canvas.dispatchEvent(event('pointerdown',{pointerType:'mouse',button:0,clientX:600,clientY:130}));f.game.update(.01);
+  assert.deepEqual(f.game.localInput.aim,{x:1000,y:100});assert.equal(f.measurements,2);
+  f.win.dispatchEvent(event('pointerup',{pointerType:'mouse',button:0,clientX:600,clientY:330}));f.game.update(.01);
+  assert.deepEqual(p.aim,{x:1000,y:500});assert.equal(f.measurements,3);assert.equal(p.shotsTaken,1);assert.ok(f.game.state.ball.vy>0);assert.equal(f.requests,0);
  }finally{f.close();}
 });
 
-test('blocked Promise and unsupported cursor-lock requests recover gracefully and can be retried',async()=>{
+test('a held mouse shot continues aiming outside the canvas, then releases once at the clamped edge',()=>{
  const f=fixture();try{
-  f.canvas.requestPointerLock=()=>Promise.reject(new Error('blocked'));
-  assert.equal(f.game.requestCursorLock(),true);await Promise.resolve();await Promise.resolve();
-  assert.equal(f.game.cursorLockPending,false);assert.match(f.game.state.message,/blocked/);assert.equal(f.game.isCursorLocked(),false);
-  f.canvas.requestPointerLock=()=>{f.doc.pointerLockElement=f.canvas;f.doc.dispatchEvent(new Event('pointerlockchange'));return Promise.resolve();};
-  assert.equal(f.game.requestCursorLock(),true);assert.equal(f.game.isCursorLocked(),true);f.game.suspendControls();
-  delete f.canvas.requestPointerLock;assert.equal(f.game.requestCursorLock(),false);assert.match(f.game.state.message,/unavailable/);
+  const p=own(f);f.canvas.dispatchEvent(event('pointerdown',{pointerType:'mouse',button:0,clientX:900,clientY:300}));f.game.update(.01);
+  f.win.dispatchEvent(event('pointermove',{pointerType:'mouse',clientX:1600,clientY:900}));assert.deepEqual(f.game.localInput.aim,{x:1200,y:700});
+  f.win.dispatchEvent(event('pointerup',{pointerType:'mouse',clientX:1600,clientY:900}));f.game.update(.01);
+  f.win.dispatchEvent(event('pointerup',{pointerType:'mouse',clientX:1600,clientY:900}));f.game.update(.01);
+  assert.equal(p.shotsTaken,1);assert.equal(p.shotType,'normal');assert.equal(f.game.mouseShotActive,false);
  }finally{f.close();}
 });
 
-test('clicking the pitch or pressing L requests lock, and stopping releases it and removes listeners',()=>{
- const f=fixture();try{
-  f.canvas.dispatchEvent(event('pointerdown',{pointerType:'mouse',button:0}));assert.equal(f.game.isCursorLocked(),true);
-  f.win.dispatchEvent(event('pointerup',{pointerType:'mouse'}));
-  f.win.dispatchEvent(event('keydown',{key:'l',code:'KeyL'}));assert.equal(f.game.isCursorLocked(),false);
-  f.win.dispatchEvent(event('keydown',{key:'l',code:'KeyL'}));assert.equal(f.game.isCursorLocked(),true);
-  f.game.stop();assert.equal(f.game.isCursorLocked(),false);assert.equal(f.game.handlers.length,0);
-  const before={...f.game.localInput.aim};f.doc.dispatchEvent(event('mousemove',{movementX:200,movementY:200}));assert.deepEqual(f.game.localInput.aim,before);
- }finally{f.close();}
-});
-
-test('a cancellation edge clears an already queued release on the authoritative host',()=>{
- const game=new Game(null,{mode:'online'}),p=game.state.players[1];game.state.kickoff=null;game.setOwner(p);
- game.setInput(1,{shootHeld:true});game.update(.01);game.setInput(1,{shootHeld:false,shootRelease:true});
- assert.ok(game.pending[1].some(([kind])=>kind==='shoot'));
- game.setInput(1,{keys:{},shootHeld:false,cancelShot:true});game.update(.01);
- assert.equal(game.hasBall(p),true);assert.equal(p.charging,false);assert.equal(p.shotsTaken,0);
-});
-
-test('late Promise or legacy cursor-lock grants are immediately released after stopping or opening a menu',async()=>{
- for(const legacy of [false,true])for(const stop of [false,true]){
+test('blur, pointer cancellation and menus cancel charge and movement without kicking or spending Ultra',()=>{
+ for(const cancel of ['blur','pointercancel','menu']){
   const f=fixture();try{
-   let grant;f.canvas.requestPointerLock=()=>legacy?undefined:new Promise(resolve=>{grant=resolve;});
-   f.game.requestCursorLock();assert.equal(f.game.cursorLockPending,true);
-   if(stop)f.game.stop();else f.game.suspendControls();
-   f.doc.pointerLockElement=f.canvas;f.doc.dispatchEvent(new Event('pointerlockchange'));grant?.();await Promise.resolve();await Promise.resolve();
-   assert.equal(f.game.isCursorLocked(),false,`${legacy?'legacy':'promise'} / ${stop?'stop':'menu'}`);
-   assert.equal(f.game.cursorLockPending,false);assert.equal(f.game.cursorLockGuard,null);
+   const p=own(f);p.ultraCharge=3;f.game.localInput.keys={w:true};f.canvas.dispatchEvent(event('pointerdown',{pointerType:'mouse',button:0,clientX:900,clientY:300}));f.game.update(.1);
+   if(cancel==='menu')f.game.suspendControls();else f.win.dispatchEvent(new Event(cancel));
+   f.win.dispatchEvent(event('pointerup',{pointerType:'mouse',clientX:900,clientY:300}));f.game.update(.01);
+   assert.deepEqual(f.game.localInput.keys,{});assert.equal(p.charging,false);assert.equal(f.game.localInput.shootHeld,false);assert.equal(f.game.hasBall(p),true);assert.equal(p.shotsTaken,0);assert.equal(p.ultraCharge,3);assert.equal(f.sent.at(-1).cancelShot,true);
   }finally{f.close();}
  }
 });
 
-test('browser modifier shortcuts do not activate the cursor-lock shortcut',()=>{
- const f=fixture();try{
-  const shortcut=event('keydown',{key:'l',code:'KeyL',metaKey:true});f.win.dispatchEvent(shortcut);
-  assert.equal(f.requests,0);assert.equal(shortcut.defaultPrevented,false);
- }finally{f.close();}
-});
-
-test('tapping either Ctrl key toggles cursor lock on release while preserving the press for browser shortcuts',()=>{
- for(const code of ['ControlLeft','ControlRight']){
+test('Control and L no longer capture the pointer, and browser shortcuts keep their normal actions',()=>{
+ for(const key of ['l','f','w','1','+','t'])for(const modifier of ['ctrlKey','metaKey','altKey']){
   const f=fixture();try{
-   const down=event('keydown',{key:'Control',code,ctrlKey:true});f.win.dispatchEvent(down);
-   assert.equal(f.requests,0,'a Ctrl press waits to distinguish a tap from a shortcut');assert.equal(down.defaultPrevented,false);
-   const up=event('keyup',{key:'Control',code,ctrlKey:false});f.win.dispatchEvent(up);
-   assert.equal(f.requests,1);assert.equal(f.game.isCursorLocked(),true);assert.equal(up.defaultPrevented,false);
-   const p=f.game.state.players[0];f.game.setOwner(p);f.game.startShot();f.game.localInput.keys={w:true};
-   f.win.dispatchEvent(event('keydown',{key:'Control',code,ctrlKey:true}));f.win.dispatchEvent(event('keyup',{key:'Control',code,ctrlKey:false}));
-   assert.equal(f.game.isCursorLocked(),false);assert.equal(f.game.hasBall(p),true);assert.equal(p.shotsTaken,0);assert.deepEqual(f.game.localInput.keys,{});assert.equal(f.sent.at(-1).cancelShot,true);
-  }finally{f.close();}
- }
-});
-
-test('Ctrl taps support legacy keyboard events and repeated keydown events toggle only once',()=>{
- for(const fields of [{key:'Control'},{key:'Control',location:2},{keyCode:17},{which:17}]){
-  const f=fixture();try{
-   f.win.dispatchEvent(event('keydown',{...fields,ctrlKey:true}));
-   for(let i=0;i<10;i++)f.win.dispatchEvent(event('keydown',{...fields,ctrlKey:true,repeat:true}));
-   assert.equal(f.requests,0);f.win.dispatchEvent(event('keyup',{...fields,ctrlKey:false}));
-   assert.equal(f.requests,1);assert.equal(f.game.isCursorLocked(),true);
-   f.win.dispatchEvent(event('keyup',{...fields,ctrlKey:false}));assert.equal(f.game.isCursorLocked(),true,'an unpaired release has no effect');
-  }finally{f.close();}
- }
-});
-
-test('Ctrl browser shortcuts neither toggle cursor lock nor prevent their browser action',()=>{
- for(const [key,code] of [['l','KeyL'],['w','KeyW'],['f','KeyF'],['1','Digit1'],['+','Equal'],['t','KeyT']])for(const locked of [false,true]){
-  const f=fixture();try{
-   if(locked)f.game.requestCursorLock();const requests=f.requests;
-   const events=[event('keydown',{key:'Control',code:'ControlLeft',ctrlKey:true}),event('keydown',{key,code,ctrlKey:true}),event('keyup',{key,code,ctrlKey:true}),event('keyup',{key:'Control',code:'ControlLeft',ctrlKey:false})];
+   const events=[event('keydown',{key:'Control',code:'ControlLeft',ctrlKey:true}),event('keyup',{key:'Control',code:'ControlLeft'}),event('keydown',{key:'l',code:'KeyL'}),event('keyup',{key:'l',code:'KeyL'}),event('keydown',{key,[modifier]:true}),event('keyup',{key,[modifier]:true})];
    for(const e of events)f.win.dispatchEvent(e);
-   assert.equal(f.requests,requests,`${code} did not request lock`);assert.equal(f.game.isCursorLocked(),locked,`${code} did not change lock`);assert.equal(f.game.localInput.shootHeld,false);
-   for(const e of events)assert.equal(e.defaultPrevented,false,`${code} remains available to the browser`);
+   assert.equal(f.requests,0);assert.equal(f.game.localInput.shootHeld,false);assert.deepEqual(f.game.localInput.keys,{});assert.ok(events.every(e=>!e.defaultPrevented));
   }finally{f.close();}
  }
 });
 
-test('two Ctrl keys or another already-held key do not count as a standalone Ctrl tap',()=>{
- const f=fixture();try{
-  f.win.dispatchEvent(event('keydown',{key:'Control',code:'ControlLeft',ctrlKey:true}));f.win.dispatchEvent(event('keydown',{key:'Control',code:'ControlRight',ctrlKey:true}));
-  f.win.dispatchEvent(event('keyup',{key:'Control',code:'ControlRight',ctrlKey:true}));f.win.dispatchEvent(event('keyup',{key:'Control',code:'ControlLeft',ctrlKey:false}));assert.equal(f.requests,0);
-  f.win.dispatchEvent(event('keydown',{key:'Shift',code:'ShiftLeft',shiftKey:true}));f.win.dispatchEvent(event('keydown',{key:'Control',code:'ControlLeft',ctrlKey:true,shiftKey:true}));
-  f.win.dispatchEvent(event('keyup',{key:'Shift',code:'ShiftLeft',ctrlKey:true}));f.win.dispatchEvent(event('keyup',{key:'Control',code:'ControlLeft',ctrlKey:false}));assert.equal(f.requests,0);
-  f.win.dispatchEvent(event('keydown',{key:'Control',code:'ControlLeft',ctrlKey:true}));f.win.dispatchEvent(event('keyup',{key:'Control',code:'ControlLeft',ctrlKey:false}));assert.equal(f.requests,1,'a subsequent clean tap works');
+test('normal F, Q, movement and skill controls remain active while editable fields and repeat actions are ignored',()=>{
+ const f=fixture('guest');try{
+  const p=own(f);p.ultraCharge=3;p.character='manmarker';
+  for(const key of ['q','c','e','1'])f.win.dispatchEvent(event('keydown',{key}));
+  assert.equal(f.sent.filter(input=>input.pass).length,1);assert.equal(f.sent.filter(input=>input.action).length,1);assert.equal(f.sent.filter(input=>input.awaken).length,1);assert.equal(f.sent.filter(input=>input.skill===1).length,1);
+  const before=f.sent.length;f.win.dispatchEvent(event('keydown',{key:'1',repeat:true}));f.win.dispatchEvent(event('keydown',{key:'f',target:{tagName:'INPUT'}}));assert.equal(f.sent.length,before);
+  f.win.dispatchEvent(event('keydown',{key:'f',code:'KeyF'}));assert.equal(f.game.localInput.ultraShot,true);
+  f.win.dispatchEvent(event('keyup',{key:'f',code:'KeyF'}));assert.equal(f.sent.at(-1).shootRelease,true);assert.equal(f.sent.at(-1).ultraShot,true);
+  f.win.dispatchEvent(event('keydown',{key:'ArrowUp',code:'ArrowUp'}));assert.equal(f.game.localInput.keys.w,true);f.win.dispatchEvent(event('keyup',{key:'ArrowUp',code:'ArrowUp',ctrlKey:true}));assert.equal(f.game.localInput.keys.w,false);
  }finally{f.close();}
 });
 
-test('Ctrl cannot lock from an editable field or when another modifier is held',()=>{
- for(const fields of [{target:{tagName:'INPUT'}},{target:{isContentEditable:true}},{metaKey:true},{altKey:true},{shiftKey:true}]){
-  const f=fixture();try{
-   f.win.dispatchEvent(event('keydown',{key:'Control',code:'ControlLeft',ctrlKey:true,...fields}));f.win.dispatchEvent(event('keyup',{key:'Control',code:'ControlLeft',ctrlKey:false,...fields}));
-   assert.equal(f.requests,0);assert.equal(f.game.isCursorLocked(),false);
-  }finally{f.close();}
- }
+test('a cancellation edge still clears a queued authoritative release',()=>{
+ const value=new Game(null,{mode:'online'}),p=value.state.players[1];value.state.kickoff=null;value.setOwner(p);value.setInput(1,{shootHeld:true});value.update(.01);value.setInput(1,{shootHeld:false,shootRelease:true});
+ assert.ok(value.pending[1].some(([kind])=>kind==='shoot'));value.setInput(1,{keys:{},shootHeld:false,cancelShot:true});value.update(.01);assert.equal(value.hasBall(p),true);assert.equal(p.shotsTaken,0);
 });
 
-test('a Ctrl release after losing focus or opening a menu cannot request cursor lock',()=>{
- for(const locked of [false,true])for(const blur of [false,true]){
-  const f=fixture();try{
-   if(locked)f.game.requestCursorLock();const requests=f.requests;
-   f.win.dispatchEvent(event('keydown',{key:'Control',code:'ControlLeft',ctrlKey:true}));
-   if(blur)f.win.dispatchEvent(new Event('blur'));else f.game.suspendControls();
-   f.win.dispatchEvent(event('keyup',{key:'Control',code:'ControlLeft',ctrlKey:false}));assert.equal(f.requests,requests);assert.equal(f.game.isCursorLocked(),false);
-  }finally{f.close();}
- }
+test('stopping removes all pointer and keyboard listeners without touching browser lock services',()=>{
+ const f=fixture('guest');try{
+  f.game.stop();assert.equal(f.game.handlers.length,0);const before={...f.game.localInput.aim},count=f.sent.length;
+  f.canvas.dispatchEvent(event('pointermove',{clientX:500,clientY:500}));f.canvas.dispatchEvent(event('pointerdown',{pointerType:'mouse',button:0,clientX:500,clientY:500}));f.win.dispatchEvent(event('keydown',{key:'f'}));
+  assert.deepEqual(f.game.localInput.aim,before);assert.equal(f.sent.length,count);assert.equal(f.requests,0);
+ }finally{f.close();}
 });

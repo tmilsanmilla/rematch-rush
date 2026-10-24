@@ -8,13 +8,15 @@ A character-powered football game with separate Offline and Online match menus. 
 - Online: 1v1 and 2v2 enter separate public matchmaking queues for two or four human players. Canceling leaves the queue.
 - Custom rooms: choose human, bot, or empty outfield slots for each team, a 2/5/10-minute match, and an optional first-to-3/5/10 goal target. Share a four-character code with friends. For example, you + bot versus friend + bot.
 
-Choose a character in the Characters tab to read its moves, follow-ups, passives and awakening. Normal and lucky spins are currently unlimited.
+Movement and ball travel run at 85% of the previous pace; match timers, cooldowns and shot windups keep their real-time durations. The original full-screen pitch presentation is restored without stretching it.
+
+Choose a character in the Characters tab to read its moves, follow-ups, passives and awakening. Characters are shown from Common through Master, with Characterless available afterward. Normal and lucky spins are currently unlimited. Bots can select the full roster and use possession-aware regular and awakening moves.
 
 ## Controls
 
 - WASD or arrow keys: move
-- Mouse: aim
-- Ctrl: toggle cursor lock; Esc: release it
+- Mouse: move the normal cursor to aim at a pitch location; no pointer lock or crosshair
+- Esc: open/close the controls menu
 - Left mouse button or Shoot: hold to charge a normal shot, release to kick
 - Every successful kick (including passes and kicking moves) adds one Ultrashot charge, capped at three; empty attempts do not count
 - F or the Ultrashot button: after three kicks, hold then release to use a Curve Shot or Quick Shot; normal clicks never spend the charge
