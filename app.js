@@ -1,6 +1,6 @@
-import { Game } from './game.js?v=13';
-import { ROSTER, getSkills } from './characters.js?v=5';
-import { OnlineSession } from './online.js?v=5';
+import { Game } from './game.js?v=14';
+import { ROSTER, getSkills } from './characters.js?v=6';
+import { OnlineSession } from './online.js?v=6';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -29,13 +29,17 @@ let pendingOnline = false;
 let gameMode = null;
 let localTeam = 0;
 let localPlayerId = 0;
-let onlineFormat = 'standard-1v1';
+let onlineFormat = 'custom';
+let offlineFormat = 'bot-standard';
+let queueFormat = null;
+let customConfig = { slots: ['human', 'human', 'bot', 'bot'], duration: 300, scoreLimit: 0 };
 let roomLobby = null;
 const GAME_FORMATS = {
-  'standard-1v1': { name: '1v1 Standard', detail: 'You versus another player. An AI goalkeeper on each team.', humans: 2 },
-  'standard-2v2': { name: '2v2 Standard', detail: 'Two human players per team, plus an AI goalkeeper.', humans: 4 },
-  'bot-standard': { name: 'Bot Standard', detail: 'You + AI versus AI + AI. Play instantly with passing bots.', humans: 1 },
-  'bot-team': { name: 'Bot Team Standard', detail: 'You + a friend versus two bots. An AI goalkeeper on each team.', humans: 2 },
+  'bot-standard': { name: 'Bot Standard · 1v1', detail: 'You versus one bot. An AI goalkeeper on each team.', humans: 1 },
+  'bot-2v2': { name: '2v2 vs Bots', detail: 'You + a bot teammate versus two bots, plus AI goalkeepers.', humans: 1 },
+  'standard-1v1': { name: '1v1', detail: 'Join the queue to find another player. AI goalkeepers on both sides.', humans: 2 },
+  'standard-2v2': { name: '2v2', detail: 'Join the queue for two human players per team, plus AI goalkeepers.', humans: 4 },
+  custom: { name: 'Custom Room', detail: 'Choose human and bot teammates, match length, and a goal target.', humans: 2 },
 };
 const SPIN_ODDS = {
   normal: [['common', 44], ['rare', 30], ['epic', 15], ['legendary', 8.4], ['world class', 2.2], ['master', .4]],
@@ -162,7 +166,7 @@ function renderCharacters() {
 
 function renderPlaybook(character) {
   const move = (skill, key) => `<div class="preview-skill" title="${esc(skill.description)}"><kbd>${key}</kbd><span>${esc(skill.name)}</span><small>${skill.once ? 'ONCE' : `${skill.cooldown}s`}</small></div>`;
-  const base = '<div class="preview-skill"><span>Ultrashot<small>Every third shot becomes a boosted Curve Shot or Quick Shot.</small></span></div>';
+  const base = '<div class="preview-skill"><kbd>F</kbd><span>Ultrashot<small>Every kick adds 1 charge. After 3 kicks, hold F and release for a boosted Curve Shot or Quick Shot.</small></span></div>';
   const skills = character.skills.length ? character.skills.map((skill, index) => move(skill, index + 1)).join('') : '<p class="empty-skills">A clean slate. Master movement, shooting, and the art of a perfect tackle.</p>';
   const passive = character.passive ? `<div class="preview-skill passive-preview" title="${esc(character.passive.description)}"><kbd>✦</kbd><span>${esc(character.passive.name)}<small>${esc(character.passive.description)}</small></span></div>` : '';
   const awakeWithBall = getSkills({character: character.id, ability: {}}, true, true);
@@ -192,15 +196,17 @@ function characterGuide() {
   const moveCards = list => list.map(skill => `<article class="guide-move"><header><kbd>${esc(skill.key)}</kbd><h4>${esc(skill.name)}</h4><small class="guide-cooldown">${skill.once ? 'Once per awakening' : `${skill.cooldown}s cooldown`}</small></header>${skill.condition ? `<small class="guide-condition">${esc(skill.condition)}</small>` : ''}<p>${esc(skill.description)}</p></article>`).join('');
   const awakening = character.awakening;
   const awakeningRequirement = awakening?.requires === 'on-ball' ? 'Activate with the ball.' : awakening?.requires === 'off-ball' ? 'Activate without the ball.' : 'Activate with or without the ball.';
-  openModal(`<div class="character-guide"><div class="character-guide-heading"><div class="guide-portrait" aria-hidden="true">${footballer(character, { small: true })}</div><div><span class="modal-eyebrow">THE PLAYBOOK / MOVE GUIDE</span><h2 class="modal-title" id="modal-title" tabindex="-1" autofocus>${esc(character.name)}</h2><span class="guide-rarity">${esc(character.rarity)}</span></div></div><p class="modal-description">${esc(character.description)}</p>${unlocked ? '' : '<p class="guide-note">You can explore every move before unlocking this character.</p>'}<section class="guide-section"><h3>Moves</h3><div class="guide-moves">${moves.length ? moveCards(moves) : '<p class="modal-description">Characterless has no special moves. Use movement, tackle / dribble, and Ultrashot to play.</p>'}</div></section>${followups.length ? `<section class="guide-section"><h3>Unlocked follow-ups</h3><p class="guide-note">Use the same move key again when its follow-up appears.</p><div class="guide-moves">${moveCards(followups)}</div></section>` : ''}<section class="guide-section guide-ultrashot"><h3>Ultrashot · every character</h3><p>Hold the Ultrashot button to charge, then release to shoot. Every third shot becomes a boosted Curve Shot or Quick Shot with a better chance of scoring. Long shots can miss, and keepers can still save it.</p></section>${character.passive ? `<section class="guide-section guide-passive"><h3>Passive · ${esc(character.passive.name)}</h3><p>${esc(character.passive.description)}</p></section>` : ''}${awakening ? `<section class="guide-section guide-awakening"><h3>Awakening · ${esc(awakening.name)}</h3><p>Press E when ready. ${awakeningRequirement} Lasts ${awakening.duration} seconds.</p><p>${esc(awakening.description)}</p><div class="guide-moves">${moveCards(awakened)}</div></section>` : '<p class="guide-note">This character has no awakening.</p>'}<p class="guide-note">Moves that need a teammate are unavailable in 1v1.</p><footer class="guide-actions">${unlocked && profile.equipped !== character.id ? `<button class="button primary" data-action="equip-reveal" data-character="${esc(character.id)}">Equip ${esc(character.name)} ${icon('check')}</button>` : ''}<button class="button outline" data-action="close-modal">Back to characters</button></footer></div>`, true);
+  openModal(`<div class="character-guide"><div class="character-guide-heading"><div class="guide-portrait" aria-hidden="true">${footballer(character, { small: true })}</div><div><span class="modal-eyebrow">THE PLAYBOOK / MOVE GUIDE</span><h2 class="modal-title" id="modal-title" tabindex="-1" autofocus>${esc(character.name)}</h2><span class="guide-rarity">${esc(character.rarity)}</span></div></div><p class="modal-description">${esc(character.description)}</p>${unlocked ? '' : '<p class="guide-note">You can explore every move before unlocking this character.</p>'}<section class="guide-section"><h3>Moves</h3><div class="guide-moves">${moves.length ? moveCards(moves) : '<p class="modal-description">Characterless has no special moves. Use movement, tackle / dribble, and Ultrashot to play.</p>'}</div></section>${followups.length ? `<section class="guide-section"><h3>Unlocked follow-ups</h3><p class="guide-note">Use the same move key again when its follow-up appears.</p><div class="guide-moves">${moveCards(followups)}</div></section>` : ''}<section class="guide-section guide-ultrashot"><h3>Ultrashot · every character</h3><p>Every kick adds 1 Ultrashot charge, including passes and kicking moves. After 3 kicks, hold F or the Ultrashot button and release for a boosted Curve Shot or Quick Shot. Normal mouse shots keep your earned charge until you choose to use it. Long shots can miss, and keepers can still save it.</p></section>${character.passive ? `<section class="guide-section guide-passive"><h3>Passive · ${esc(character.passive.name)}</h3><p>${esc(character.passive.description)}</p></section>` : ''}${awakening ? `<section class="guide-section guide-awakening"><h3>Awakening · ${esc(awakening.name)}</h3><p>Press E when ready. ${awakeningRequirement} Lasts ${awakening.duration} seconds.</p><p>${esc(awakening.description)}</p><div class="guide-moves">${moveCards(awakened)}</div></section>` : '<p class="guide-note">This character has no awakening.</p>'}<p class="guide-note">Moves that need a teammate are unavailable in 1v1.</p><footer class="guide-actions">${unlocked && profile.equipped !== character.id ? `<button class="button primary" data-action="equip-reveal" data-character="${esc(character.id)}">Equip ${esc(character.name)} ${icon('check')}</button>` : ''}<button class="button outline" data-action="close-modal">Back to characters</button></footer></div>`, true);
   previousFocus = $(`.roster-card[data-character="${character.id}"]`);
 }
 
 function matchModal() {
-  openModal(`<span class="modal-eyebrow">ARRIVAL OF THE BEST / CHOOSE YOUR MATCH</span><h2 class="modal-title" id="modal-title">THE PITCH<br>IS YOURS.</h2><p class="modal-description">Five minutes. Pick your team. Make every touch count.</p>${['bot-standard', 'standard-1v1', 'standard-2v2', 'bot-team'].map(format => `<button class="opponent-option" data-action="${format === 'bot-standard' ? 'play-bot' : 'online-mode'}" data-format="${format}"><span class="opponent-icon">${format === 'bot-standard' ? 'AI' : format === 'standard-1v1' ? '1v1' : '2v2'}</span><span><strong>${GAME_FORMATS[format].name}</strong><small>${GAME_FORMATS[format].detail}</small></span>${icon('arrow')}</button>`).join('')}<button class="button outline full-button" data-action="join-online">Join with a 4-character code ${icon('arrow')}</button><p class="modal-footnote">Playing as ${esc(profile.name)} · ${esc(characterOf(profile.equipped).name)}<br>Every team has an AI goalkeeper. Online rooms start when all players join.</p>`);
+  queueFormat = null;
+  const option = (format, action, badge) => `<button class="opponent-option" data-action="${action}" data-format="${format}"><span class="opponent-icon">${badge}</span><span><strong>${GAME_FORMATS[format].name}</strong><small>${GAME_FORMATS[format].detail}</small></span>${icon('arrow')}</button>`;
+  openModal(`<span class="modal-eyebrow">CHOOSE YOUR MATCH</span><h2 class="modal-title" id="modal-title">THE PITCH<br>IS YOURS.</h2><p class="modal-description">Play instantly against bots, find an online match, or build your own teams.</p><section class="match-section" aria-labelledby="offline-matches"><h3 id="offline-matches">Offline <span>PLAY INSTANTLY</span></h3>${option('bot-standard', 'play-bot', '1v1')}${option('bot-2v2', 'play-bot', '2v2')}</section><section class="match-section" aria-labelledby="online-matches"><h3 id="online-matches">Online <span>PLAY WITH PEOPLE</span></h3>${option('standard-1v1', 'queue-online', '1v1')}${option('standard-2v2', 'queue-online', '2v2')}<button class="opponent-option" data-action="online"><span class="opponent-icon">＋</span><span><strong>Create a room</strong><small>Customize human and bot teams, match length, and the goal target.</small></span>${icon('arrow')}</button><button class="button outline full-button" data-action="join-online">Join a room with a code ${icon('arrow')}</button></section><p class="modal-footnote">Playing as ${esc(profile.name)} · ${esc(characterOf(profile.equipped).name)}<br>Every team has an AI goalkeeper.</p>`);
 }
 function helpModal() {
-  openModal(`<span class="modal-eyebrow">THE BASICS / A LITTLE KNOW-HOW</span><h2 class="modal-title" id="modal-title">LET YOUR FEET<br>DO THE TALKING.</h2><p class="modal-description">First to the ball. Last to give up. Outscore your opponent before the five-minute whistle.</p><div class="controls-grid"><div class="control-row"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span><span><strong>Move around the pitch</strong><small>Arrow keys work too. Carrying the ball slows you 20%.</small></span></div><div class="control-row"><span><kbd>⌖</kbd></span><span><strong>Aim with your mouse</strong><small>Your crosshair sets the direction of your shot. Click the pitch, choose Lock cursor, or tap Ctrl to toggle cursor lock (L works too). Esc releases it. Long shots have more spread and can miss the goal.</small></span></div><div class="control-row"><span><kbd>F</kbd></span><span><strong>Hold to charge. Release to shoot.</strong><small>All characters have Ultra Shot: every third F shot becomes a boosted Curve Shot or Quick Shot. Hold F to charge, or hold its on-screen button.</small></span></div><div class="control-row"><span><kbd>C</kbd></span><span><strong>Tackle or dribble</strong><small>Off-ball: slide to steal. On-ball: evade a tackle.</small></span></div><div class="control-row"><span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd><kbd>5</kbd></span><span><strong>Character abilities</strong><small>Unlock a character to bring their moves to the pitch. Emperor’s chemical reaction moves to key 5 during awakening.</small></span></div><div class="control-row"><span><kbd>Q</kbd></span><span><strong>Pass to your teammate</strong><small>Available in team modes. Ground passes can be intercepted.</small></span></div><div class="control-row"><span><kbd>E</kbd></span><span><strong>Awaken your full potential</strong><small>Charges in 100 seconds. Some styles need possession.</small></span></div></div><p class="help-detail"><b>Pick your shooting spot.</b> Close, well-aimed shots are stronger chances. Normal and Ultra shots can still be saved. Earned instant-goal specials are the exceptions. Very distant shots and shots toward your own goal are unlikely to score.<br><b>Play the rebound.</b> The ball stays in play and bounces off the walls. Max-power shots and goalkeeper throws travel through the air. Dribble into a tackle to stun your rival. Teammate passing abilities require a team mode; trying them in 1v1 never spends their cooldown. Replays show up to 10 seconds before a goal. The scorer can skip. After online matches, everyone can choose Rematch in the same room.<br><b>On touch screens:</b> use the direction pad and action buttons. Drag on the pitch to aim.</p><button class="button primary full-button" data-action="close-modal">Got it. Game on. ${icon('arrow')}</button>`, true);
+  openModal(`<span class="modal-eyebrow">THE BASICS / A LITTLE KNOW-HOW</span><h2 class="modal-title" id="modal-title">LET YOUR FEET<br>DO THE TALKING.</h2><p class="modal-description">First to the ball. Last to give up. Outscore your opponent before the five-minute whistle.</p><div class="controls-grid"><div class="control-row"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span><span><strong>Move around the pitch</strong><small>Arrow keys work too. Carrying the ball slows you 20%.</small></span></div><div class="control-row"><span><kbd>⌖</kbd></span><span><strong>Aim with your mouse</strong><small>Point at the pitch to choose your shot direction. Long shots have more spread and can miss the goal.</small></span></div><div class="control-row"><span><kbd>CLICK</kbd></span><span><strong>Normal shot</strong><small>Hold the left mouse button or Shoot button to charge, then release. Each successful kick adds 1 Ultrashot charge. Normal shots never spend it.</small></span></div><div class="control-row"><span><kbd>F</kbd></span><span><strong>Ultrashot · 3 kicks to earn</strong><small>When all 3 charge pips are filled, hold F or the Ultrashot button, then release. This spends the charge on a Curve Shot or Quick Shot. An empty attempt adds no charge.</small></span></div><div class="control-row"><span><kbd>C</kbd></span><span><strong>Tackle or dribble</strong><small>Off-ball: slide to steal. On-ball: evade a tackle.</small></span></div><div class="control-row"><span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd><kbd>5</kbd></span><span><strong>Character abilities</strong><small>Unlock a character to bring their moves to the pitch. Emperor’s chemical reaction moves to key 5 during awakening.</small></span></div><div class="control-row"><span><kbd>Q</kbd></span><span><strong>Pass to your teammate</strong><small>Use Q or the Pass button in team modes. Every completed kick-pass adds 1 Ultrashot charge. Ground passes can be intercepted.</small></span></div><div class="control-row"><span><kbd>E</kbd></span><span><strong>Awaken your full potential</strong><small>Charges in 100 seconds. Some styles need possession.</small></span></div></div><p class="help-detail"><b>Pick your shooting spot.</b> Close, well-aimed shots are stronger chances. Normal and Ultra shots can still be saved. Earned instant-goal specials are the exceptions. Very distant shots and shots toward your own goal are unlikely to score.<br><b>Play the rebound.</b> The ball stays in play and bounces off the walls. Max-power shots and goalkeeper throws travel through the air. Dribble into a tackle to stun your rival. Teammate passing abilities require a team mode; trying them in 1v1 never spends their cooldown. Replays show up to 10 seconds before a goal. The scorer can skip. After online matches, everyone can choose Rematch in the same room.<br><b>On touch screens:</b> use the direction pad and action buttons. Drag on the pitch to aim.</p><button class="button primary full-button" data-action="close-modal">Got it. Game on. ${icon('arrow')}</button>`, true);
 }
 function profileModal() {
   openModal(`<span class="modal-eyebrow">YOUR NAME / YOUR REPUTATION</span><h2 class="modal-title" id="modal-title">MAKE A NAME<br>FOR YOURSELF.</h2><p class="modal-description">This is the name your rival sees on the pitch.</p><form id="profile-form"><label class="field-label" for="username-input">Player name</label><input id="username-input" class="text-input" name="username" maxlength="18" value="${esc(profile.name)}" required autofocus autocomplete="nickname"><button class="button primary" type="submit">Save player name ${icon('check')}</button></form>`);
@@ -209,15 +215,37 @@ function settingsModal() {
   openModal(`<span class="modal-eyebrow">OFF THE PITCH / PREFERENCES</span><h2 class="modal-title" id="modal-title">YOUR GAME.<br>YOUR RULES.</h2><p class="modal-description">Settle in before you settle the score.</p><div class="settings-row"><div><strong>Match sounds</strong><small>Kicks, saves, goals, and interface sounds.</small></div><label class="toggle"><input id="sound-setting" type="checkbox" ${profile.sound ? 'checked' : ''} aria-label="Match sounds"><span></span></label></div><div class="settings-row"><div><strong>Reduced interface motion</strong><small>Keep menu transitions and spin effects simple.</small></div><label class="toggle"><input id="motion-setting" type="checkbox" ${profile.reducedMotion ? 'checked' : ''} aria-label="Reduced interface motion"><span></span></label></div><button class="button outline full-button" data-action="help">View controls & playbook ${icon('arrow')}</button><p class="modal-footnote">Your player name, unlocked styles, and preferences are saved on this device.</p>`);
 }
 
+function customRoomControls() {
+  const select = (id, options, value) => `<select id="${id}" class="text-input">${options.map(([key, label]) => `<option value="${key}"${String(key) === String(value) ? ' selected' : ''}>${label}</option>`).join('')}</select>`;
+  const slot = (id, label) => `<label class="team-slot">${label}${select(`room-slot-${id}`, [['human', 'Friend'], ['bot', 'Bot'], ['empty', 'Empty']], customConfig.slots[id])}</label>`;
+  return `<div class="custom-teams"><fieldset><legend>Blue team</legend><div class="team-slot"><span>Player 1</span><strong>You · ${esc(profile.name)}</strong></div>${slot(2, 'Player 2')}</fieldset><fieldset><legend>Red team</legend>${slot(1, 'Player 1')}${slot(3, 'Player 2')}</fieldset></div><div class="custom-settings"><label>Match length${select('room-duration', [[120, '2 minutes'], [300, '5 minutes'], [600, '10 minutes']], customConfig.duration)}</label><label>Goal target${select('room-score-limit', [[0, 'No goal target'], [3, 'First to 3'], [5, 'First to 5'], [10, 'First to 10']], customConfig.scoreLimit)}</label></div><p class="guide-note" id="custom-room-summary">${customConfig.slots.some((kind, id) => id % 2 === 1 && kind !== 'empty') ? customRoomSummary() : 'Add a friend or bot to the red team.'}</p><p class="guide-note">Each side needs at least one player. Friends fill open human slots in order. Every side also gets a goalkeeper.</p><button class="button primary full-button" data-action="create-room" id="create-room-button"${customConfig.slots.some((kind, id) => id % 2 === 1 && kind !== 'empty') ? '' : ' disabled'}>Create custom room ${icon('arrow')}</button>`;
+}
+function customRoomSummary() {
+  const describe = team => customConfig.slots.map((kind, id) => ({kind, id})).filter(item => item.id % 2 === team && item.kind !== 'empty').map(item => item.id === 0 ? 'You' : item.kind === 'bot' ? 'Bot' : 'Friend').join(' + ') || 'Empty team';
+  return `${describe(0)} vs ${describe(1)} · ${customConfig.duration / 60} minutes${customConfig.scoreLimit ? ` · First to ${customConfig.scoreLimit}` : ''}`;
+}
 function onlineModal(tab = 'create') {
-  roomLobby = null;
-  openModal(`<span class="modal-eyebrow">FRIENDLIES / PLAY TOGETHER</span><h2 class="modal-title" id="modal-title">YOUR ROOM.<br>YOUR TEAM.</h2><p class="modal-description">Share a 4-letter-or-number room code. Everyone keeps this page open.</p><div class="modal-tabs"><button class="modal-tab ${tab === 'create' ? 'active' : ''}" data-action="online-create-tab">Create a room</button><button class="modal-tab ${tab === 'join' ? 'active' : ''}" data-action="online-join-tab">Join a room</button></div><div id="online-panel">${tab === 'create' ? `<div class="room-formats" aria-label="Game mode">${['standard-1v1', 'standard-2v2', 'bot-team'].map(format => `<button class="room-format ${onlineFormat === format ? 'selected' : ''}" data-action="room-format" data-format="${format}" aria-pressed="${onlineFormat === format}">${GAME_FORMATS[format].name}</button>`).join('')}</div><p class="modal-description">${GAME_FORMATS[onlineFormat].detail} The match starts when all ${GAME_FORMATS[onlineFormat].humans} human players join.</p><button class="button primary full-button" data-action="create-room" id="create-room-button">Create room ${icon('arrow')}</button>` : `<form id="join-form"><label class="field-label" for="room-code-input">Room code</label><input class="text-input" id="room-code-input" name="code" placeholder="A7B2" maxlength="4" minlength="4" pattern="[A-Za-z0-9]{4}" autocomplete="off" autocapitalize="characters" spellcheck="false" required autofocus><button class="button primary" type="submit" id="join-room-button">Join room ${icon('arrow')}</button></form>`}</div><div id="room-lobby" class="room-lobby" aria-live="polite"></div><div class="room-status" id="room-status"><span class="live-dot"></span><span>Direct connection · five-minute matches</span></div>`);
+  roomLobby = null; queueFormat = null; onlineFormat = 'custom';
+  openModal(`<span class="modal-eyebrow">ONLINE / CUSTOM ROOMS</span><h2 class="modal-title" id="modal-title">YOUR ROOM.<br>YOUR RULES.</h2><p class="modal-description">Choose your teams and share a 4-character code. For public matchmaking, choose 1v1 or 2v2 in Online.</p><div class="modal-tabs"><button class="modal-tab ${tab === 'create' ? 'active' : ''}" data-action="online-create-tab">Create a room</button><button class="modal-tab ${tab === 'join' ? 'active' : ''}" data-action="online-join-tab">Join a room</button></div><div id="online-panel">${tab === 'create' ? customRoomControls() : `<form id="join-form"><label class="field-label" for="room-code-input">Room code</label><input class="text-input" id="room-code-input" name="code" placeholder="A7B2" maxlength="4" minlength="4" pattern="[A-Za-z0-9]{4}" autocomplete="off" autocapitalize="characters" spellcheck="false" required autofocus><button class="button primary" type="submit" id="join-room-button">Join room ${icon('arrow')}</button></form>`}</div><div id="room-lobby" class="room-lobby" aria-live="polite"></div><div class="room-status" id="room-status" role="status"><span class="live-dot"></span><span>Keep this page open while your friends join.</span></div>`);
 }
 function renderRoomLobby(lobby) {
   roomLobby = lobby;
-  if (GAME_FORMATS[lobby?.gameFormat]) onlineFormat = lobby.gameFormat;
   const element = $('#room-lobby'); if (!element || !lobby) return;
-  element.innerHTML = `<b>${GAME_FORMATS[lobby.gameFormat]?.name || 'Online match'} · ${lobby.connectedHumans} / ${lobby.requiredHumans} players</b><div class="lobby-players">${(lobby.players || []).map(player => `<div data-team="${player.team}"><span>${player.team === 0 ? 'BLUE' : 'RED'}${player.isBot ? ' · AI' : ''}</span><strong>${esc(player.name)}</strong><small>${esc(characterOf(player.character).name)}</small></div>`).join('')}</div><p>${lobby.connectedHumans < lobby.requiredHumans ? 'Waiting for the rest of the players. Share the same code with everyone.' : 'Everyone is here. Starting the match…'}</p>`;
+  const queued = queueFormat !== null;
+  element.innerHTML = `<b>${GAME_FORMATS[lobby.gameFormat]?.name || 'Online match'} · ${lobby.connectedHumans} / ${lobby.requiredHumans} players</b><div class="lobby-players">${(lobby.players || []).map(player => `<div data-team="${player.team}"><span>${player.team === 0 ? 'BLUE' : 'RED'}${player.isBot ? ' · BOT' : ''}</span><strong>${esc(player.name)}</strong><small>${esc(characterOf(player.character).name)}</small></div>`).join('')}</div><p>${lobby.connectedHumans < lobby.requiredHumans ? queued ? 'Searching for more players. You can cancel at any time.' : 'Waiting for the rest of the players. Share this room code with your friends.' : 'Everyone is here. Starting the match…'}</p>${lobby.settings ? `<p>${Math.round(lobby.settings.duration / 60)} minutes${lobby.settings.scoreLimit ? ` · First to ${lobby.settings.scoreLimit}` : ''}</p>` : ''}`;
+}
+async function startQueue(format) {
+  if (!['standard-1v1', 'standard-2v2'].includes(format)) return;
+  closeOnline(); queueFormat = format;
+  openModal(`<span class="modal-eyebrow">ONLINE / MATCHMAKING</span><h2 class="modal-title" id="modal-title">FINDING YOUR<br>${format === 'standard-1v1' ? 'RIVAL.' : 'TEAM.'}</h2><p class="modal-description">${GAME_FORMATS[format].name} · Waiting for ${GAME_FORMATS[format].humans} real players. The match starts automatically when everyone connects.</p><div id="online-panel"><p class="queue-search"><span class="live-dot"></span>Searching for players…</p></div><div id="room-lobby" class="room-lobby" aria-live="polite"></div><div class="room-status" id="room-status" role="status"></div><button class="button outline full-button" data-action="cancel-queue">Cancel search ${icon('close')}</button>`);
+  const session = newOnlineSession();
+  try { await session.queue(profile.name, profile.equipped, format); }
+  catch (error) {
+    if (online !== session || currentScreen === 'game') return;
+    pendingOnline = false;
+    setRoomStatus(error.message || 'Matchmaking could not connect. Try again.', true);
+    $('#online-panel').innerHTML = `<button class="button primary full-button" data-action="queue-online" data-format="${format}">Search again ${icon('arrow')}</button>`;
+  }
 }
 function setRoomStatus(message, error = false) {
   const status = $('#room-status'); if (!status) return;
@@ -227,7 +255,11 @@ function newOnlineSession() {
   closeOnline();
   pendingOnline = true;
   const session = new OnlineSession({
-    onStatus(status) { if (online === session) setRoomStatus(status.message, status.type === 'error'); },
+    onStatus(status) {
+      if (online !== session) return;
+      if (queueFormat && currentScreen !== 'game' && !['queue', 'connected', 'error'].includes(status.type)) return;
+      setRoomStatus(status.message, status.type === 'error');
+    },
     onLobby(lobby) { if (online === session) renderRoomLobby(lobby); },
     onConnected(connection) {
       if (online !== session) return;
@@ -257,7 +289,9 @@ function newOnlineSession() {
         const createButton = $('#create-room-button');
         if (createButton) { createButton.disabled = false; createButton.innerHTML = `Create room ${icon('arrow')}`; }
         const panel = $('#online-panel');
-        if ($('#joined-room-code')) panel.innerHTML = `<p class="modal-description">The room closed.</p><button class="button primary full-button" data-action="join-online">Join another room ${icon('arrow')}</button>`;
+        if (queueFormat) {
+          panel.innerHTML = `<button class="button primary full-button" data-action="queue-online" data-format="${queueFormat}">Search again ${icon('arrow')}</button>`;
+        } else if ($('#joined-room-code')) panel.innerHTML = `<p class="modal-description">The room closed.</p><button class="button primary full-button" data-action="join-online">Join another room ${icon('arrow')}</button>`;
         else if ($('#created-room-code')) panel.innerHTML = `<p class="modal-description">The room closed.</p><button class="button primary full-button" data-action="create-room" id="create-room-button">Create a new room ${icon('arrow')}</button>`;
       }
     },
@@ -269,11 +303,12 @@ async function createRoom() {
   const button = $('#create-room-button'); if (button) { button.disabled = true; button.innerHTML = 'Opening your room…'; }
   const session = newOnlineSession(); setRoomStatus('Connecting to the room service…');
   try {
-    const code = await session.create(profile.name, profile.equipped, onlineFormat);
+    const code = await session.create(profile.name, profile.equipped, 'custom', { ...customConfig, slots: [...customConfig.slots] });
     if (online !== session || currentScreen === 'game') return;
     $('#online-panel').innerHTML = `<span class="field-label">YOUR ROOM CODE</span><div class="room-code" id="created-room-code">${esc(code)}</div><div class="online-actions"><button class="button outline" data-action="copy-room" data-code="${esc(code)}">Copy code ${icon('check')}</button><button class="button outline" data-action="cancel-room">Cancel room ${icon('close')}</button></div>`;
     if (roomLobby) renderRoomLobby(roomLobby);
-    setRoomStatus(`Room is live. Waiting for ${GAME_FORMATS[onlineFormat].humans - 1} more player${GAME_FORMATS[onlineFormat].humans > 2 ? 's' : ''}…`);
+    const waiting = Math.max(0, customConfig.slots.filter(kind => kind === 'human').length - 1);
+    setRoomStatus(`Room is live. Waiting for ${waiting} more player${waiting === 1 ? '' : 's'}…`);
   } catch (error) {
     if (online !== session) return;
     setRoomStatus(error.message || 'The room service is unavailable. Try again in a moment.', true);
@@ -338,15 +373,15 @@ function startMatch(mode = 'bot', connection = null) {
   const character = characterOf(profile.equipped), remote = connection?.remoteProfile;
   $('#hud-character').textContent = character.name.toUpperCase(); $('#hud-name').textContent = profile.name;
   $('#hud-rarity').textContent = character.rarity.toUpperCase(); $('#hud-rarity').style.color = rarityColors[character.rarity]; $('#hud-rarity').style.background = `${rarityColors[character.rarity]}25`;
-  const format = connection?.gameFormat || (mode === 'bot' ? 'bot-standard' : 'standard-1v1');
-  const teamMatch = format !== 'standard-1v1';
+  const format = connection?.gameFormat || (mode === 'bot' ? offlineFormat : 'standard-1v1');
+  const teamMatch = connection?.players ? connection.players.filter(player => player.team === localTeam).length > 1 : ['bot-2v2', 'standard-2v2'].includes(format);
   $('#blue-name').textContent = localTeam === 0 ? teamMatch ? 'YOUR TEAM' : 'YOU' : 'RIVALS'; $('#red-name').textContent = localTeam === 1 ? teamMatch ? 'YOUR TEAM' : 'YOU' : mode === 'bot' || format === 'bot-team' ? 'RIVAL AI' : 'RIVALS';
   $('#phase-banner').hidden = true; $('#cutscene-caption').hidden = true; $('#replay-label').hidden = true;
   $('#skip-replay').hidden = true;
   $('#awakening-status').hidden = true; $('#awakening-announcement').hidden = true;
   updateCursorLock(false);
   game = new Game($('#game-canvas'), {
-    mode, gameFormat: format, players: connection?.players, character: profile.equipped, username: profile.name, localTeam, localPlayerId,
+    mode, gameFormat: format, players: connection?.players, settings: connection?.settings, character: profile.equipped, username: profile.name, localTeam, localPlayerId,
     opponentCharacter: remote?.character || (mode === 'bot' ? ['manmarker', 'powershooter'][Math.floor(Math.random() * 2)] : 'none'),
     opponentUsername: remote?.username || 'RIVAL AI',
     onState: updateHUD,
@@ -403,7 +438,10 @@ function updateHUD(state) {
   updateAwakeningStatus(state);
   const player = state.players?.find(item => item.id === localPlayerId); if (!player) return;
   const hasTeammate = state.players.some(other => other.id !== player.id && other.team === player.team);
-  $('#pass-button').hidden = !hasTeammate; $('#touch-pass-button').hidden = !hasTeammate;
+  for (const selector of ['#pass-button', '#touch-pass-button']) {
+    const button = $(selector); button.hidden = false; button.disabled = !hasTeammate;
+    button.title = hasTeammate ? 'Q: pass to your teammate. Each successful kick adds 1 Ultrashot charge.' : 'Passing needs a teammate. Choose a team mode to pass.';
+  }
   const reactionNotice = $('#chemical-notice');
   reactionNotice.hidden = !((player.ability?.reactionReady > 0 || player.ability?.reactionPromptLeft > 0) && player.ability?.reactionPrompt);
   reactionNotice.textContent = reactionNotice.hidden ? '' : player.ability.reactionPrompt;
@@ -417,17 +455,23 @@ function updateHUD(state) {
   const signature = `${character.id}:${skills.map((skill, index) => `${skill.name}:${skill.used}:${skillRequirement(player, index, hasBall)}`).join('|')}`;
   if (signature !== hudSignature) {
     hudSignature = signature;
-    const universalShot = `<button class="ability-button universal-shot-button" data-action="shoot" id="ultra-shot-button" title="Hold to charge, then release to shoot. Every third shot becomes a boosted Curve Shot or Quick Shot. Scoring is never guaranteed."><b>Ultrashot</b><small id="ultra-shot-status">3 SHOTS TO ULTRA</small><small>Hold to charge · release to shoot</small><div class="ultra-cycle" aria-hidden="true"><i id="ultra-pip-1"></i><i id="ultra-pip-2"></i><i id="ultra-pip-3"></i></div></button>`;
+    const universalShot = `<div class="kick-controls"><button class="ability-button normal-shot-button" data-action="shoot" id="normal-shot-button" title="Hold to charge a normal shot, then release. Each kick adds 1 Ultrashot charge."><b>Shoot</b><small>Click / hold · release</small></button><button class="ability-button universal-shot-button" data-action="ultrashot" id="ultra-shot-button" title="After 3 kicks, hold F or this button to charge, then release for an Ultrashot. Normal clicks never spend the charge."><kbd>F</kbd><b>Ultrashot</b><small id="ultra-shot-status">3 KICKS TO ULTRA</small><small>Hold F · release to use</small><div class="ultra-cycle" aria-hidden="true"><i id="ultra-pip-1"></i><i id="ultra-pip-2"></i><i id="ultra-pip-3"></i></div></button><button class="ability-button team-pass-button" data-action="pass" id="pass-action-button"><kbd>Q</kbd><b>Pass</b><small id="pass-action-status">Team modes</small></button></div>`;
     const characterMoves = skills.length ? skills.map((skill, index) => `<button class="ability-button" data-action="use-skill" data-key="${index + 1}" title="${esc(skill.description)}" aria-label="${index + 1}: ${esc(skill.name)}. ${esc(skillRequirement(player, index, hasBall))}"><div class="cooldown-wipe" hidden></div><kbd>${index + 1}</kbd><b>${esc(skill.name)}</b><small>${esc(skillRequirement(player, index, hasBall))}</small><small>${skill.once ? 'Once per awakening' : `${skill.cooldown}s cooldown`}</small><em hidden></em></button>`).join('') : `<div class="ability-button" role="status" style="padding-left:12px"><b>No character abilities</b><small>Spin & equip in Characters</small></div><button class="ability-button" data-action="tackle" title="C: slide tackle without the ball, dribble while carrying it"><kbd>C</kbd><b>Tackle / dribble</b><small>2s cooldown</small><div class="cooldown-wipe" hidden></div><em hidden></em></button>`;
     $('#ability-list').innerHTML = characterMoves;
     $('#ultra-shot-control').innerHTML = universalShot;
   }
-  const cycle = Math.max(0, Math.floor(player.shotsTaken || 0)) % 3;
-  const ultraReady = cycle === 2, shotButton = $('#ultra-shot-button');
-  $('#ultra-shot-status').textContent = ultraReady ? 'ULTRA READY · CURVE / QUICK' : `${3 - cycle} SHOTS TO ULTRA`;
+  const cycle = Math.max(0, Math.min(3, Math.floor(player.ultraCharge || 0)));
+  const ultraReady = cycle >= 3, shotButton = $('#ultra-shot-button');
+  $('#ultra-shot-status').textContent = ultraReady ? 'ULTRA READY · F' : `${3 - cycle} KICKS TO ULTRA`;
   shotButton.classList.toggle('ultra-ready', ultraReady);
-  shotButton.disabled = state.phase !== undefined && state.phase !== 'play';
-  shotButton.setAttribute('aria-label', `Ultrashot: hold to charge and release to shoot. ${ultraReady ? 'Ultra ready: next shot is a Curve Shot or Quick Shot.' : `${3 - cycle} shots until Ultra.`}`);
+  const canPlay = state.phase === undefined || state.phase === 'play';
+  shotButton.disabled = !canPlay || !ultraReady;
+  $('#normal-shot-button').disabled = !canPlay;
+  $('#pass-action-button').disabled = !canPlay || !hasTeammate;
+  $('#pass-action-button').title = hasTeammate ? 'Q: pass to a teammate' : 'A teammate is needed to pass';
+  $('#pass-action-status').textContent = hasTeammate ? 'Pass to teammate' : 'Needs a teammate';
+  $('#touch-ultra-button').disabled = !canPlay || !ultraReady;
+  shotButton.setAttribute('aria-label', `F: Ultrashot. ${ultraReady ? 'Ready. Hold F or this button and release to use.' : `${3 - cycle} more kicks to charge.`}`);
   for (let pip = 1; pip <= 3; pip++) $(`#ultra-pip-${pip}`).classList.toggle('filled', pip <= cycle);
   $$('button.ability-button:not([data-action="shoot"])', $('#ability-list')).forEach((button, index) => {
     const skill = skills[index], cooldown = skill ? skill.followup ? 0 : player.cooldowns?.[index] || 0 : hasBall ? player.dribbleCd || 0 : player.slideCd || 0, used = !!skill?.used;
@@ -498,16 +542,18 @@ function leaveMatch() {
 function pressKey(key, down = true) { if (!game || currentScreen !== 'game') return; window.dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', { key, bubbles: true, cancelable: true })); }
 
 document.addEventListener('pointerdown', event => {
-  const button = event.target.closest('[data-action="shoot"]');
+  const button = event.target.closest('[data-action="shoot"], [data-action="ultrashot"]');
   if (!button || button.disabled || shotPointer !== null || event.button > 0) return;
   event.preventDefault();
-  if (!game?.startShot?.()) return;
-  shotPointer = event.pointerId ?? 0;
-  button.setPointerCapture?.(shotPointer);
+  const ultra = button.dataset.action === 'ultrashot';
+  if (!(ultra ? game?.startUltrashot?.() : game?.startShot?.())) return;
+  shotPointer = { id: event.pointerId ?? 0, ultra };
+  button.setPointerCapture?.(shotPointer.id);
 });
 const releaseShotPointer = event => {
-  if (shotPointer === null || (event.pointerId ?? 0) !== shotPointer) return;
-  shotPointer = null; event.preventDefault(); game?.releaseShot?.();
+  if (shotPointer === null || (event.pointerId ?? 0) !== shotPointer.id) return;
+  const ultra = shotPointer.ultra; shotPointer = null; event.preventDefault();
+  if (ultra) game?.releaseUltrashot?.(); else game?.releaseShot?.();
 };
 document.addEventListener('pointerup', releaseShotPointer);
 document.addEventListener('pointercancel', releaseShotPointer);
@@ -530,11 +576,11 @@ document.addEventListener('click', event => {
   else if (action === 'character-guide') characterGuide();
   else if (action === 'equip' || action === 'equip-reveal') { const id = button.dataset.character || selected; if (profile.unlocked.includes(id)) { profile.equipped = id; selected = id; save(); renderCharacters(); if (action === 'equip-reveal') closeModal(); toast(`${characterOf(id).name} equipped. Your move.`); } }
   else if (action === 'spin' || action === 'spin-again' || action === 'lucky-spin') spin(action === 'lucky-spin' || button.dataset.spin === 'lucky');
-  else if (action === 'play-bot') startMatch('bot');
-  else if (action === 'online') onlineModal();
-  else if (action === 'online-mode') { closeOnline(); onlineFormat = GAME_FORMATS[button.dataset.format] && button.dataset.format !== 'bot-standard' ? button.dataset.format : 'standard-1v1'; onlineModal(); }
-  else if (action === 'room-format') { closeOnline(); onlineFormat = GAME_FORMATS[button.dataset.format] && button.dataset.format !== 'bot-standard' ? button.dataset.format : 'standard-1v1'; onlineModal(); }
-  else if (action === 'join-online') onlineModal('join');
+  else if (action === 'play-bot') { offlineFormat = button.dataset.format === 'bot-2v2' ? 'bot-2v2' : 'bot-standard'; startMatch('bot'); }
+  else if (action === 'online') { closeOnline(); onlineModal(); }
+  else if (action === 'queue-online' || action === 'online-mode') startQueue(button.dataset.format);
+  else if (action === 'cancel-queue') { closeOnline(); queueFormat = null; matchModal(); }
+  else if (action === 'join-online') { closeOnline(); onlineModal('join'); }
   else if (action === 'online-create-tab') { closeOnline(); onlineModal('create'); }
   else if (action === 'online-join-tab') { closeOnline(); onlineModal('join'); }
   else if (action === 'create-room') createRoom();
@@ -548,7 +594,8 @@ document.addEventListener('click', event => {
   else if (action === 'rematch') requestRematch();
   else if (action === 'skip-replay') { game?.skipReplay(localPlayerId); $('#game-canvas').focus(); }
   else if (action === 'use-skill') { game?.useSkill(Number(button.dataset.key)); $('#game-canvas').focus(); }
-  else if (action === 'shoot') { if (event.detail === 0) { game?.startShot?.(); game?.releaseShot?.(); } $('#game-canvas').focus(); }
+  else if (action === 'shoot') { if (event.detail === 0 && game?.startShot?.()) game?.releaseShot?.(); $('#game-canvas').focus(); }
+  else if (action === 'ultrashot') { if (event.detail === 0 && game?.startUltrashot?.()) game?.releaseUltrashot?.(); $('#game-canvas').focus(); }
   else if (action === 'tackle') { game?.useAction(); $('#game-canvas').focus(); }
   else if (action === 'pass') { game?.usePass?.(); $('#game-canvas').focus(); }
   else if (action === 'awaken') { game?.useAwakening(); $('#game-canvas').focus(); }
@@ -563,6 +610,14 @@ document.addEventListener('input', event => { if (event.target.id === 'username-
 document.addEventListener('change', event => {
   if (event.target.id === 'sound-setting') { profile.sound = event.target.checked; syncProfile(); sound(); }
   if (event.target.id === 'motion-setting') { profile.reducedMotion = event.target.checked; syncProfile(); }
+  if (/^room-slot-[123]$/.test(event.target.id)) customConfig.slots[Number(event.target.id.at(-1))] = event.target.value;
+  if (event.target.id === 'room-duration') customConfig.duration = Number(event.target.value);
+  if (event.target.id === 'room-score-limit') customConfig.scoreLimit = Number(event.target.value);
+  if (/^room-(slot-|duration|score-limit)/.test(event.target.id)) {
+    const valid = customConfig.slots.some((kind, id) => id % 2 === 1 && kind !== 'empty');
+    $('#create-room-button').disabled = !valid;
+    $('#custom-room-summary').textContent = valid ? customRoomSummary() : 'Add a friend or bot to the red team.';
+  }
 });
 $('#modal').addEventListener('click', event => { if (event.target === $('#modal')) closeModal(); });
 window.addEventListener('keydown', event => {
@@ -570,13 +625,13 @@ window.addEventListener('keydown', event => {
   if ($('#modal').hidden) { if (event.key === 'Escape' && currentScreen === 'game') { event.preventDefault(); helpModal(); } return; }
   if (event.key === 'Escape') { event.preventDefault(); closeModal(); }
   if (event.key === 'Tab') {
-    const focusable = $$('button:not(:disabled),input:not(:disabled),[tabindex="0"]', $('#modal')), first = focusable[0], last = focusable.at(-1);
+    const focusable = $$('button:not(:disabled),input:not(:disabled),select:not(:disabled),[tabindex="0"]', $('#modal')), first = focusable[0], last = focusable.at(-1);
     if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
   }
-  if (!/INPUT|TEXTAREA/.test(event.target.tagName) && event.key !== 'Tab' && event.key !== 'Enter' && event.key !== ' ') event.stopImmediatePropagation();
+  if (!/INPUT|TEXTAREA|SELECT/.test(event.target.tagName) && event.key !== 'Tab' && event.key !== 'Enter' && event.key !== ' ') event.stopImmediatePropagation();
 }, true);
-const touchKeys = { up: 'w', left: 'a', down: 's', right: 'd', c: 'c', f: 'f' };
+const touchKeys = { up: 'w', left: 'a', down: 's', right: 'd', c: 'c' };
 $$('[data-touch]').forEach(button => {
   button.addEventListener('pointerdown', event => { event.preventDefault(); button.setPointerCapture(event.pointerId); pressKey(touchKeys[button.dataset.touch]); });
   const release = event => { event.preventDefault(); pressKey(touchKeys[button.dataset.touch], false); };

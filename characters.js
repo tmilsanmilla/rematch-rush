@@ -321,10 +321,11 @@ const perfectPass = (g, from, to, { instant = false, curve = .6, color = colorOf
   if (!g.hasBall(from) || !to) return false;
   const origin = { x: from.x, y: from.y };
   trace(g, from, to, 8); aura(from, color, 1); aura(to, color, 1);
-  if (instant) { g.setOwner(to); effect(g, 'touch', to, color); return true; }
+  if (instant) { if (g.setOwner(to) === false) return false; g.recordKickCharge?.(from); effect(g, 'touch', to, color); return true; }
   const duration = clamp(dist(g, from, to) / 1800, .25, .8), b = g.state.ball;
   Object.assign(b, { owner: null, x: origin.x, y: origin.y, vx: 0, vy: 0, vz: 0, z: 12, curve: 0, color, power: 55, lastTouch: from.id, lastKickTeam: from.team, lastKickAgo: 0, finish: null, pickupDelay: duration + .1, passTarget: to.id });
   b.perfectPass = { fromId: from.id, targetId: to.id, origin, left: duration, duration, curve, color, onReceive, aim: aim ? { ...aim } : null };
+  g.recordKickCharge?.(from);
   return true;
 };
 const guaranteedFinish = (g, p, options = {}) => {

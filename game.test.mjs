@@ -433,16 +433,16 @@ test('keeper holds for two seconds and distributes through the air at up to 65 p
   assert.ok(game.state.ball.power <= 65);
 });
 
-test('keepers can save a third shot and legacy bypass flags never guarantee a goal', () => {
+test('keepers can save ordinary and earned Ultra shots and legacy bypass flags never guarantee a goal', () => {
   const game=match(),striker=game.state.players[0],keeper=game.state.keepers[1];
-  for(let shot=0;shot<3;shot++){
+  for(let shot=0;shot<4;shot++){
     Object.assign(striker,{x:1000,y:350,aim:{x:1130,y:350}});Object.assign(keeper,{x:1102,y:350});
-    game.setOwner(striker);withRandom(()=>.999,()=>game.kick(striker,20,{fromF:true}));
+    game.setOwner(striker);withRandom(()=>.999,()=>game.kick(striker,20,{manual:true,ultraShot:shot===3}));
     Object.assign(game.state.ball,{pierceKeeper:true,unsaveable:true});advance(game,.7);
     assert.equal(game.state.ball.owner,keeper.id,`shot ${shot+1} can be saved`);assert.equal(game.state.phase,'play');
-    if(shot<2)advance(game,2.1);
+    if(shot<3)advance(game,2.1);
   }
-  assert.equal(striker.shotsTaken,3);assert.equal(striker.shotType,'quick');assert.equal(keeper.saveStreak,3);assert.deepEqual(game.state.score,[0,0]);
+  assert.equal(striker.shotsTaken,4);assert.equal(striker.shotType,'quick');assert.equal(striker.ultraCharge,0);assert.equal(keeper.saveStreak,4);assert.deepEqual(game.state.score,[0,0]);
 });
 
 test('a paused cutscene freezes the clock, movement, and scheduled move windups', () => {
@@ -638,41 +638,43 @@ test('phone-sized power meters keep readable physical text and stay within the d
 
 
 function withRandom(random,callback){const previous=Math.random;try{Math.random=random;return callback();}finally{Math.random=previous;}}
-function fRelease(game,team){game.setInput(team,{shootHeld:true});game.update(.01);game.setInput(team,{shootHeld:false,shootRelease:true});game.update(.01);}
+function releaseKick(game,team,ultraShot=false){game.setInput(team,{shootHeld:true,ultraShot});game.update(.01);game.setInput(team,{shootHeld:false,shootRelease:true,ultraShot});game.update(.01);}
 
-test('every character receives exactly one random Ultra Shot on each third successful F release',()=>{
+test('every character earns Ultra after three kicks and only an explicit Ultra release spends it',()=>{
   for(const character of ['none','manmarker','powershooter','ninja','playmaker','streetdribbler','supersonic'])for(const team of [0,1]){
     const game=match(character),p=game.state.players[team];p.character=character;
-    for(let shot=1;shot<=6;shot++){
-      game.setOwner(p);withRandom(()=>shot===6?.75:.25,()=>fRelease(game,team));
-      assert.equal(p.shotsTaken,shot,`${character}, team ${team}, F shot ${shot}`);
+    for(let shot=1;shot<=8;shot++){
+      game.setOwner(p);const ultraShot=shot===4||shot===8;withRandom(()=>shot===8?.75:.25,()=>releaseKick(game,team,ultraShot));
+      assert.equal(p.shotsTaken,shot,`${character}, team ${team}, kick ${shot}`);
       assert.equal(game.state.players[1-team].shotsTaken,0);
-      assert.equal(game.state.ball.shotType,shot===3?'curve':shot===6?'quick':'normal');
-      assert.equal(p.shotType,game.state.ball.shotType);assert.equal(game.state.ball.finish.source,'f');
+      assert.equal(game.state.ball.shotType,shot===4?'curve':shot===8?'quick':'normal');
+      assert.equal(p.ultraCharge,ultraShot?0:shot%4);assert.equal(p.shotType,game.state.ball.shotType);
+      assert.equal(game.state.ball.finish.source,ultraShot?'ultra':'f');
     }
   }
 });
 
-test('F shot cycles persist through possession changes and goals, while other kicks do not spend them',()=>{
+test('every actual ability kick advances Ultra, invalid attempts do not, and earned charge survives goals',()=>{
   const game=match('powershooter'),[p,enemy]=game.state.players;
-  game.setOwner(p);fRelease(game,0);assert.equal(p.shotsTaken,1);
-  game.setOwner(enemy);assert.equal(game.kick(p,50,{fromF:true}),false);assert.equal(p.shotsTaken,1);
-  game.setOwner(p);game.kick(p,40);assert.equal(p.shotsTaken,1,'ability kicks do not use F progress');
-  game.setOwner(p);fRelease(game,0);assert.equal(p.shotsTaken,2);assert.equal(game.shotMeter({...p,charging:true,charge:5}).label,'ULTRA POWER');
-  game.goal(0);advance(game,5.01);advance(game,game.state.replayDuration+.01);assert.equal(p.shotsTaken,2);
-  game.state.kickoff=null;game.setOwner(p);withRandom(()=>.75,()=>fRelease(game,0));
-  assert.equal(p.shotsTaken,3);assert.equal(game.shotMeter(p).label,'ULTRA QUICK');
-  const fresh=match();assert.ok(fresh.state.players.every(player=>player.shotsTaken===0));
+  game.setOwner(p);releaseKick(game,0);assert.equal(p.ultraCharge,1);
+  game.setOwner(enemy);assert.equal(game.kick(p,50),false);assert.equal(p.ultraCharge,1);
+  game.setOwner(p);game.kick(p,40);assert.equal(p.ultraCharge,2);assert.equal(p.shotsTaken,2);
+  game.setOwner(p);releaseKick(game,0);assert.equal(p.ultraCharge,3);assert.equal(p.shotsTaken,3);
+  game.goal(0);advance(game,5.01);advance(game,game.state.replayDuration+.01);assert.equal(p.ultraCharge,3);
+  game.state.kickoff=null;game.setOwner(p);releaseKick(game,0);assert.equal(p.ultraCharge,3);assert.equal(p.shotType,'normal','ordinary release keeps earned Ultra ready');
+  game.setOwner(p);withRandom(()=>.75,()=>releaseKick(game,0,true));
+  assert.equal(p.shotsTaken,5);assert.equal(p.ultraCharge,0);assert.equal(game.shotMeter(p).label,'ULTRA QUICK');
+  const fresh=match();assert.ok(fresh.state.players.every(player=>player.ultraCharge===0&&player.shotsTaken===0));
 });
 
-test('a maximum-charge automatic F release spends one cycle entry, preserved online and in replay frames',()=>{
-  const game=match(),p=game.state.players[0];game.setOwner(p);Object.assign(p,{shotsTaken:2,charging:true,charge:100,maxHold:3.99});
-  game.setInput(0,{shootHeld:true});withRandom(()=>.25,()=>game.update(.02));
-  assert.equal(p.shotsTaken,3);assert.equal(p.shotType,'curve');assert.equal(game.state.ball.power,100);
-  game.setInput(0,{shootHeld:false,shootRelease:true});game.update(.01);assert.equal(p.shotsTaken,3);
+test('maximum-hold explicit Ultra spends its charge once and preserves the result online and in replay',()=>{
+  const game=match(),p=game.state.players[0];game.setOwner(p);Object.assign(p,{shotsTaken:3,ultraCharge:3,charging:true,chargingUltra:true,charge:100,maxHold:3.99});
+  game.setInput(0,{shootHeld:true,ultraShot:true});withRandom(()=>.25,()=>game.update(.02));
+  assert.equal(p.shotsTaken,4);assert.equal(p.ultraCharge,0);assert.equal(p.shotType,'curve');assert.equal(game.state.ball.power,100);
+  game.setInput(0,{shootHeld:false,shootRelease:true,ultraShot:true});game.update(.01);assert.equal(p.shotsTaken,4);
   const guest=new Game(null,{mode:'guest',localTeam:1});guest.importState(game.exportState());
-  assert.equal(guest.state.players[0].shotsTaken,3);assert.equal(guest.state.ball.shotType,'curve');assert.deepEqual(guest.state.ball.finish,game.state.ball.finish);
-  assert.equal(game.shotReplay[0].players[0].shotsTaken,3);assert.equal(game.shotReplay[0].players[0].shotType,'curve');assert.equal(game.shotReplay[0].ball.shotType,'curve');
+  assert.equal(guest.state.players[0].ultraCharge,0);assert.equal(guest.state.players[0].shotsTaken,4);assert.equal(guest.state.ball.shotType,'curve');assert.deepEqual(guest.state.ball.finish,game.state.ball.finish);
+  assert.equal(game.shotReplay[0].players[0].shotsTaken,4);assert.equal(game.shotReplay[0].players[0].ultraCharge,0);assert.equal(game.shotReplay[0].ball.shotType,'curve');
 });
 
 test('shared shoot controls send one press and release through the guest input channel',()=>{
@@ -704,8 +706,8 @@ test('finishing is sampled once per actual attempt, never rerolled during flight
 
 function simulatedShot(type,originX,targetX,roll,team=0,extra={}){
   const events=[],game=match('none',{onEvent:event=>events.push(event)}),p=game.state.players[team];
-  Object.assign(p,{x:originX,y:350,aim:{x:targetX,y:275},shotsTaken:type==='normal'?0:2});Object.assign(game.state.players[1-team],{x:600,y:580});game.setOwner(p);
-  let draw=0;withRandom(()=>type==='normal'?roll:draw++===0?(type==='curve'?.25:.75):roll,()=>game.kick(p,40,{fromF:true,...extra}));
+  Object.assign(p,{x:originX,y:350,aim:{x:targetX,y:275},ultraCharge:type==='normal'?0:3});Object.assign(game.state.players[1-team],{x:600,y:580});game.setOwner(p);
+  let draw=0;withRandom(()=>type==='normal'?roll:draw++===0?(type==='curve'?.25:.75):roll,()=>game.kick(p,40,{fromF:true,ultraShot:type!=='normal',...extra}));
   const profile=game.state.ball.finish;for(let i=0;i<400&&game.state.phase==='play'&&typeof game.state.ball.owner!=='string';i++)game.update(.01);
   return {game,p,profile,events,scored:game.state.score.some(Boolean)};
 }
@@ -734,7 +736,7 @@ test('a losing finishing roll produces a visible keeper save, while a winning ro
 test('old guaranteed ability shots remain saveable and cannot escape distance or own-goal limits',()=>{
   for(const [x,target]of [[880,1130],[150,1130],[250,70]]){
     const result=simulatedShot('normal',x,target,.999,0,{fromF:false,finishBoost:.18,air:true});
-    assert.equal(result.scored,false);assert.equal(result.p.shotsTaken,0);assert.equal(result.game.state.ball.owner,target===70?'k0':'k1');
+    assert.equal(result.scored,false);assert.equal(result.p.shotsTaken,1);assert.equal(result.p.ultraCharge,1);assert.equal(result.game.state.ball.owner,target===70?'k0':'k1');
     if(x===150)assert.ok(result.profile.chances[1]<=.045);if(target===70)assert.ok(result.profile.chances[0]<=.015);
   }
 });
@@ -751,8 +753,8 @@ test('keeper distributions and MANMARK reflections replace stale finishing metad
 
 test('a favorable finishing roll still lets a well-positioned keeper physically save central shots of every type',()=>{
   for(const team of [0,1])for(const type of ['normal','curve','quick']){
-    const game=match(),p=game.state.players[team];Object.assign(p,{x:team?320:880,y:350,aim:{x:team?70:1130,y:350},shotsTaken:type==='normal'?0:2});game.setOwner(p);
-    let draw=0;withRandom(()=>type==='normal'?0:draw++===0?(type==='curve'?.25:.75):0,()=>game.kick(p,40,{fromF:true}));
+    const game=match(),p=game.state.players[team];Object.assign(p,{x:team?320:880,y:350,aim:{x:team?70:1130,y:350},ultraCharge:type==='normal'?0:3});game.setOwner(p);
+    let draw=0;withRandom(()=>type==='normal'?0:draw++===0?(type==='curve'?.25:.75):0,()=>game.kick(p,40,{fromF:true,ultraShot:type!=='normal'}));
     advance(game,.8);assert.equal(game.state.ball.owner,team?'k0':'k1');assert.deepEqual(game.state.score,[0,0]);
   }
 });
@@ -761,7 +763,7 @@ test('formerly guaranteed awakened shots aim at a real corner and can score or b
   for(const roll of [0,.999]){
     const game=match('supersonic'),p=game.state.players[0];Object.assign(p,{x:800,y:350,awakened:true,awakeningLeft:45,ability:{awakeningActive:true}});game.setOwner(p);
     game.setInput(0,{skill:1});game.update(.01);withRandom(()=>roll,()=>advance(game,3.01));
-    assert.equal(game.state.ball.finish.source,'ability');assert.equal(p.shotsTaken,0);assert.equal(game.state.ball.finish.chances[1]>.8,true);
+    assert.equal(game.state.ball.finish.source,'ability');assert.equal(p.shotsTaken,1);assert.equal(p.ultraCharge,1);assert.equal(game.state.ball.finish.chances[1]>.8,true);
     for(let i=0;i<100&&game.state.phase==='play'&&typeof game.state.ball.owner!=='string';i++)game.update(.01);
     assert.equal(game.state.score[0],roll===0?1:0);if(roll>.9)assert.equal(game.state.ball.owner,'k1');
   }
@@ -770,8 +772,8 @@ test('formerly guaranteed awakened shots aim at a real corner and can score or b
 
 test('a Quick Shot preserves maximum-charge airtime instead of arriving below normal keeper clearance',()=>{
   for(const team of [0,1])for(const type of ['normal','curve','quick']){
-    const game=match(),p=game.state.players[team];Object.assign(p,{x:team?500:700,y:350,aim:{x:team?70:1130,y:350},shotsTaken:type==='normal'?0:2});Object.assign(game.state.players[1-team],{x:600,y:580});game.setOwner(p);
-    let draw=0;withRandom(()=>type==='normal'?0:draw++===0?(type==='curve'?.25:.75):0,()=>game.kick(p,100,{fromF:true,air:true}));
+    const game=match(),p=game.state.players[team];Object.assign(p,{x:team?500:700,y:350,aim:{x:team?70:1130,y:350},ultraCharge:type==='normal'?0:3});Object.assign(game.state.players[1-team],{x:600,y:580});game.setOwner(p);
+    let draw=0;withRandom(()=>type==='normal'?0:draw++===0?(type==='curve'?.25:.75):0,()=>game.kick(p,100,{fromF:true,ultraShot:type!=='normal',air:true}));
     const profile=game.state.ball.finish;for(let i=0;i<100&&game.state.phase==='play';i++)game.update(.01);
     assert.equal(game.state.score[team],1,`${type} maximum-charge shot should retain its airborne route, team ${team}`);assert.ok(profile.chances[1-team]<1);
   }
@@ -839,7 +841,7 @@ test('only explicitly scripted instant-goal specials bypass saves and keep their
   for(const team of [0,1]){
     const game=match(),p=game.state.players[team];game.setOwner(p);
     const fCount=p.shotsTaken;assert.equal(game.guaranteedGoal(p,{power:100,color:'#56aaff',air:true}),true);
-    assert.equal(game.state.phase,'play');assert.ok(game.state.ball.scriptedGoal);assert.equal(p.shotsTaken,fCount);
+    assert.equal(game.state.phase,'play');assert.ok(game.state.ball.scriptedGoal);assert.equal(p.shotsTaken,fCount+1);assert.equal(p.ultraCharge,1);
     advance(game,.3);assert.equal(game.state.phase,'play');assert.equal(game.state.ball.owner,null);assert.ok(game.state.ball.z>0);
     advance(game,.3);assert.equal(game.state.phase,'celebrate');assert.equal(game.state.score[team],1);
     assert.ok(game.goalReplay.length>=5);assert.equal(game.state.scorerTeam,team);
@@ -896,7 +898,7 @@ test('new cinematic shot windups display their promised power before releasing o
     game.useSkill(slot);game.update(.01);assert.equal(game.state.phase,'cutscene',character);
     assert.equal(game.shotMeter(p).power,power);assert.equal(game.shotMeter(p).label,'WINDUP');
     advance(game,duration/2);near(game.shotMeter(p).fill,.5,.01);
-    advance(game,duration/2+.01);assert.equal(game.state.ball.power,power);assert.equal(p.shotsTaken,0);
+    advance(game,duration/2+.01);assert.equal(game.state.ball.power,power);assert.equal(p.shotsTaken,1);assert.equal(p.ultraCharge,1);
     assert.equal(game.shotMeter(p).label,'SHOT');
     if(character==='ninja')assert.equal(game.state.ball.knuckle,true);
   }

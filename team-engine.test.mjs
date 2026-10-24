@@ -6,10 +6,10 @@ const advance=(game,seconds)=>{for(let elapsed=0;elapsed<seconds;elapsed+=.01)ga
 function match(format='standard-2v2',extra={}){const game=new Game(null,{mode:'online',gameFormat:format,...extra});game.state.kickoff=null;return game;}
 
 test('team formats create two independent outfield slots plus a keeper on each team',()=>{
- for(const format of ['standard-2v2','bot-standard','bot-team']){
+ for(const format of ['standard-2v2','bot-2v2','bot-team']){
   const game=match(format);assert.deepEqual(game.state.players.map(p=>[p.id,p.team]),[[0,0],[1,1],[2,0],[3,1]]);
   assert.equal(game.state.keepers.length,2);assert.equal(game.width,1200);assert.equal(game.height,700);
-  assert.deepEqual(game.state.players.filter(p=>p.isBot).map(p=>p.id),format==='bot-standard'?[1,2,3]:format==='bot-team'?[1,3]:[]);
+  assert.deepEqual(game.state.players.filter(p=>p.isBot).map(p=>p.id),format==='bot-2v2'?[1,2,3]:format==='bot-team'?[1,3]:[]);
   for(const p of game.state.players){assert.equal(game.teammate(p).team,p.team);assert.notEqual(game.teammate(p).id,p.id);assert.notEqual(game.opponent(p).team,p.team);}
  }
  assert.equal(new Game(null,{mode:'bot'}).state.players.length,2,'legacy solo construction stays compatible');
@@ -27,7 +27,7 @@ test('a second teammate moves, charges, aims, and cancels without controlling th
 test('team passes travel physically and an opposing player can intercept them',()=>{
  const game=match(),[from,enemy,to,other]=game.state.players;
  Object.assign(from,{x:300,y:350,aim:{x:700,y:350}});Object.assign(to,{x:700,y:350});Object.assign(enemy,{x:500,y:350});Object.assign(other,{x:900,y:550});game.setOwner(from);
- assert.equal(game.pass(from,to),true);assert.equal(game.state.ball.owner,null);assert.equal(game.state.ball.passTarget,to.id);assert.ok(game.state.ball.vx>0);assert.equal(from.shotsTaken,0);
+ assert.equal(game.pass(from,to),true);assert.equal(game.state.ball.owner,null);assert.equal(game.state.ball.passTarget,to.id);assert.ok(game.state.ball.vx>0);assert.equal(from.shotsTaken,1);assert.equal(from.ultraCharge,1);
  advance(game,.3);assert.equal(game.state.ball.owner,enemy.id);assert.equal(enemy.lastReceivedFromId,from.id);assert.equal(game.state.ball.pass,null);
  const solo=match('standard-1v1');solo.setOwner(solo.localPlayer());assert.equal(solo.pass(solo.localPlayer()),false);
 });

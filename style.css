@@ -213,3 +213,44 @@
 #pass-button{display:flex;align-items:center;gap:4px;background:transparent;color:#d7e3c5;border:1px solid #b6c7a755;padding:4px 7px;font-size:8px;border-radius:2px;min-height:24px}
 
 .preview-skill>span>small{display:block;margin-top:3px;font-weight:400;line-height:1.6;color:#75806d}
+
+/* Match selection keeps instant offline play separate from online queues. */
+.match-section{margin-top:24px}
+.match-section>h3{display:flex;align-items:baseline;justify-content:space-between;gap:12px;font-size:18px;margin:0 0 10px;color:var(--ink)}
+.match-section>h3>span{font-family:var(--body);font-size:8px;letter-spacing:1px;color:var(--muted);font-weight:600}
+.match-section .opponent-option{margin-bottom:9px}
+.match-section .opponent-option strong{font-size:24px}
+.custom-teams{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:18px 0}
+.custom-teams>fieldset{margin:0;padding:12px;border:1px solid var(--line);border-top:3px solid #4d94ff;min-width:0}
+.custom-teams>fieldset:last-child{border-top-color:#f16b58}
+.custom-teams legend{font-size:12px;font-weight:700;padding:0 6px}
+.team-slot{display:flex;flex-direction:column;gap:7px;margin:9px 0 14px;font-size:10px;color:var(--muted)}
+.team-slot strong{display:block;min-height:42px;padding:12px 8px;background:#4d94ff0c;color:var(--ink);font-size:11px;overflow-wrap:anywhere}
+.custom-settings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.custom-settings>label{display:flex;flex-direction:column;gap:8px;font-size:11px;font-weight:650}
+.custom-teams .text-input,.custom-settings .text-input{margin:0;min-width:0;width:100%;font-family:inherit;font-size:12px;min-height:44px;padding:10px 8px}
+.queue-search{display:flex;gap:10px;align-items:center;padding:20px 14px;background:#4d94ff09;border:1px solid var(--line);font-size:14px}
+.game-bottom .ultra-shot-control{max-width:650px}
+.kick-controls{display:grid;grid-template-columns:95px minmax(140px,1fr) 95px;gap:6px;width:100%}
+.game-bottom .kick-controls>.normal-shot-button,.game-bottom .kick-controls>.team-pass-button{position:relative;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;min-width:0;width:100%;max-width:none;min-height:48px;margin:0;padding:8px 10px;border-color:#ffffff32}
+.game-bottom .kick-controls>.team-pass-button{padding-left:29px}
+.game-bottom .kick-controls>.team-pass-button>kbd{left:8px;top:12px;width:16px;height:18px}
+.game-bottom .kick-controls>.normal-shot-button>b,.game-bottom .kick-controls>.team-pass-button>b{font-family:var(--body);font-size:10px;line-height:1.3;letter-spacing:0;text-transform:none}
+.game-bottom .kick-controls>.normal-shot-button>small,.game-bottom .kick-controls>.team-pass-button>small{display:block;font-size:7px;margin-top:3px;line-height:1.3}
+.game-bottom .kick-controls>.universal-shot-button{position:relative;padding-left:31px}
+.game-bottom .kick-controls>.universal-shot-button>kbd{position:absolute;left:8px;top:10px;width:16px;height:18px;font-size:10px}
+#touch-ultra-button:disabled,#pass-action-button:disabled,#touch-pass-button:disabled,#pass-button:disabled{opacity:.45}
+@media(max-width:520px){.match-section>h3{font-size:16px}.match-section>h3>span{font-size:7px}.match-section .opponent-option strong{font-size:22px}.custom-teams{gap:8px}.custom-teams>fieldset{padding:9px}.custom-settings{gap:8px}.kick-controls{grid-template-columns:58px minmax(130px,1fr) 60px;gap:4px}.game-bottom .kick-controls>.normal-shot-button,.game-bottom .kick-controls>.team-pass-button{padding:7px 5px}.game-bottom .kick-controls>.team-pass-button{padding-left:21px}.game-bottom .kick-controls>.team-pass-button>kbd{left:4px;top:9px;width:14px;height:15px;font-size:8px}.game-bottom .kick-controls>.normal-shot-button>b,.game-bottom .kick-controls>.team-pass-button>b{font-size:8px}.game-bottom .kick-controls>.normal-shot-button>small,.game-bottom .kick-controls>.team-pass-button>small{font-size:6px}.game-bottom .kick-controls>.universal-shot-button{padding-left:26px}.game-bottom .kick-controls>.universal-shot-button>kbd{left:6px;width:14px;font-size:8px}.touch-actions{gap:4px}}
+@media(max-width:520px){
+  .game-bottom{grid-template-columns:minmax(0,1fr);gap:5px}
+  .game-bottom .abilities-wrap{grid-column:1}
+  .game-bottom .awakening-button{grid-column:1;justify-self:end;width:140px;min-height:44px;height:44px;display:flex;align-items:center;gap:8px}
+  .game-bottom .awakening-button>kbd{position:static;flex:none}
+  .game-bottom .awakening-button>span{margin:0;white-space:normal}
+  .kick-controls{grid-template-columns:58px minmax(0,1fr) 60px}
+  .game-bottom .kick-controls>.universal-shot-button{column-gap:5px}
+  .game-bottom .kick-controls #ultra-shot-status{font-size:6px;max-width:105px;overflow-wrap:anywhere}
+  .game-bottom .kick-controls>.universal-shot-button>small:last-of-type{font-size:6px}
+  .touch-actions{display:grid;grid-template-columns:repeat(2,44px);gap:4px}
+  .touch-actions>button,.touch-actions>button:last-child{width:44px;height:44px;font-size:9px;border-radius:8px}
+}

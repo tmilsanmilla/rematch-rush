@@ -6,8 +6,8 @@ function withRandom(random,callback){const previous=Math.random;try{Math.random=
 function match(team=0){const game=new Game(null,{mode:'online',localTeam:team});game.state.kickoff=null;return game;}
 function release(game,distance,roll,{team=0,type='normal',...options}={}){
  const p=game.state.players[team],goalX=team?70:1130;
- Object.assign(p,{x:goalX+(team?distance:-distance),y:350,aim:{x:goalX,y:350},shotsTaken:type==='normal'?0:2});game.setOwner(p);
- let draws=0;withRandom(()=>type==='normal'?roll:draws++===0?(type==='curve'?.25:.75):roll,()=>game.kick(p,80,{fromF:true,...options}));
+ Object.assign(p,{x:goalX+(team?distance:-distance),y:350,aim:{x:goalX,y:350},ultraCharge:type==='normal'?0:3});game.setOwner(p);
+ let draws=0;withRandom(()=>type==='normal'?roll:draws++===0?(type==='curve'?.25:.75):roll,()=>game.kick(p,80,{fromF:true,ultraShot:type!=='normal',...options}));
  return {p,ball:game.state.ball,placement:{...game.state.ball.finish.placement}};
 }
 function placementFlight(distance,roll,team,type){

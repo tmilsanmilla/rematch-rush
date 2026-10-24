@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { OnlineSession } from './online.js';
+import { OnlineSession, normalizeRoomConfig } from './online.js';
 import { Game } from './game.js';
 
 class Emitter {
@@ -537,4 +537,259 @@ test('four real game engines route guest movement, skills and Q passes through o
     assert.equal(games[index].localPlayer().id, index);
     assert.deepEqual(games[index].exportState(), games[0].exportState());
   }
+});
+
+
+function queueHarness(t) {
+  const network = peerNetwork(), previousPeer = globalThis.Peer;
+  globalThis.Peer = network.Peer;
+  const sessions = [], events = [];
+  const add = () => {
+    const event = { status: [], connected: [], lobby: [], input: [], disconnected: [] };
+    const session = new OnlineSession({
+      onStatus(payload) { event.status.push(payload); },
+      onLobby(payload) { event.lobby.push(payload); },
+      onConnected(payload) { event.connected.push(payload); session.startRound(); },
+      onInput(input, id) { event.input.push({ input, id }); },
+      onDisconnect(payload) { event.disconnected.push(payload); },
+    });
+    sessions.push(session); events.push(event);
+    return session;
+  };
+  t.after(() => { sessions.forEach(session => session.close()); globalThis.Peer = previousPeer; });
+  return { network, sessions, events, add };
+}
+
+async function settleQueue() { for (let i = 0; i < 8; i++) await flush(); }
+
+test('custom mixed teams retain configured bot slots, game settings, assigned controls and rematch rules', async t => {
+  const { add, events } = queueHarness(t), host = add(), guest = add();
+  const config = { slots: ['human', 'human', 'bot', 'bot'], duration: 120, scoreLimit: 3 };
+  const code = await host.create('You', 'emperor', 'custom', config);
+  config.slots[2] = 'human';
+  await guest.join(code, 'Friend', 'ice'); await flush();
+  assert.deepEqual(host.players.map(p => [p.id, p.team, p.isBot]), [[0, 0, false], [1, 1, false], [2, 0, true], [3, 1, true]]);
+  assert.deepEqual(guest.roomConfig.slots, ['human', 'human', 'bot', 'bot']);
+  assert.deepEqual(events[0].connected[0].settings, { duration: 120, scoreLimit: 3 });
+  assert.deepEqual(events[1].connected[0].settings, { duration: 120, scoreLimit: 3 });
+  guest.sendInput({ pass: true, ultraShot: true, shootHeld: true }); await flush();
+  assert.equal(events[0].input[0].id, 1);
+  assert.equal(events[0].input[0].input.ultraShot, true);
+  assert.equal(events[0].input[0].input.pass, true);
+  host.markRoundEnded(); guest.markRoundEnded(); host.requestRematch(); guest.requestRematch(); await flush();
+  assert.equal(host._rematchReady, true);
+  assert.equal(guest._rematchReady, true);
+  assert.deepEqual(host.settings, { duration: 120, scoreLimit: 3 });
+});
+
+test('custom empty slots retain original team identity and only exact human slots can join', async t => {
+  const { add } = queueHarness(t), host = add(), friend = add();
+  const code = await host.create('Host', 'none', 'custom', { slots: ['human', 'bot', 'human', 'empty'], duration: 600, scoreLimit: 10 });
+  await friend.join(code, 'Friend', 'ice'); await flush();
+  assert.equal(friend.localPlayerId, 2); assert.equal(friend.localTeam, 0);
+  assert.deepEqual(host.players.map(p => [p.id, p.team, p.isBot]), [[0, 0, false], [1, 1, true], [2, 0, false]]);
+  assert.equal(host.connected, true);
+  assert.equal(friend.players.some(p => p.id === 3), false);
+  assert.equal(host._lobbyPayload().requiredHumans, 2);
+  const extra = add(); await assert.rejects(extra.join(code, 'Extra', 'none'), /full/);
+});
+
+test('custom room config rejects invalid teams and settings before replacing an existing room', async t => {
+  const { add } = queueHarness(t), host = add();
+  await host.create('Host', 'ice'); const peer = host.peer;
+  for (const config of [
+    { slots: ['bot', 'human', 'bot', 'bot'] },
+    { slots: ['human', 'empty', 'bot', 'empty'] },
+    { slots: ['human', 'friend', 'bot', 'bot'] },
+    { slots: ['human', 'human'] },
+    { duration: 0 }, { duration: 60 }, { duration: 180 }, { scoreLimit: -1 }, { scoreLimit: 999 },
+  ]) await assert.rejects(host.create('Host', 'ice', 'custom', config));
+  assert.equal(host.peer, peer); assert.equal(host._closed, false);
+  assert.deepEqual(normalizeRoomConfig({ duration: 120 }), { slots: ['human', 'human', 'bot', 'bot'], duration: 120, scoreLimit: 0 });
+});
+
+test('custom welcomes cannot change settings, bots, team assignments or empty slots after initial acceptance', async t => {
+  const { add, network } = queueHarness(t), host = add(), guest = add();
+  const code = await host.create('Host', 'none', 'custom', { slots: ['human', 'human', 'human', 'empty'], duration: 300, scoreLimit: 5 });
+  await guest.join(code, 'Guest', 'ice'); await flush();
+  const welcome = network.messages.find(({ message }) => message.type === 'welcome').message;
+  for (const mutate of [
+    data => { data.settings.duration = 600; },
+    data => { data.roomConfig.slots[3] = 'bot'; },
+    data => { data.players[1].team = 0; },
+    data => { data.players[1].isBot = true; },
+    data => { data.roomConfig.scoreLimit = 10; data.settings.scoreLimit = 10; },
+  ]) { const data = structuredClone(welcome); mutate(data); assert.equal(guest._acceptLobby(data), false); }
+  assert.deepEqual(guest.settings, { duration: 300, scoreLimit: 5 });
+  assert.equal(guest.players.length, 2);
+});
+
+test('1v1 matchmaking pairs two real waiting players automatically with no join code or bots', async t => {
+  const { add, events, sessions, network } = queueHarness(t);
+  const host = add(), guest = add();
+  const first = host.queue('First', 'ice', 'standard-1v1'); await settleQueue();
+  assert.equal(host.connected, false); assert.equal(events[0].connected.length, 0);
+  assert.match(events[0].status.at(-1).message, /Searching.*1\/2/);
+  assert.equal(events[0].status.some(status => /share|room [A-Z0-9]{4}/i.test(status.message)), false);
+  assert.equal(events[0].status.every(status => status.roomCode === null), true);
+  const second = guest.queue('Second', 'ninja', 'standard-1v1');
+  await Promise.all([first, second]); await settleQueue();
+  assert.equal(host.connected, true); assert.equal(guest.connected, true);
+  assert.equal(host.role, 'host'); assert.equal(guest.role, 'guest');
+  assert.equal(host.roomCode, guest.roomCode);
+  for (let i = 0; i < 2; i++) {
+    assert.equal(events[i].connected.length, 1);
+    assert.equal(sessions[i].players.length, 2);
+    assert.equal(sessions[i].players.some(p => p.isBot), false);
+    assert.equal(sessions[i].entryMode, 'queue');
+  }
+  assert.equal([...network.peers.keys()].some(id => id.includes('-queue-')), false, 'full queues release only their transient rendezvous');
+  assert.ok(host.peer && !host.peer.destroyed); assert.ok(guest.peer && !guest.peer.destroyed);
+});
+
+test('2v2 queue waits for four true humans and assigns all four controls without converting to a room form', async t => {
+  const { add, events, sessions } = queueHarness(t), pending = [];
+  for (let i = 0; i < 3; i++) { pending.push(add().queue(`P${i}`, 'ice', 'standard-2v2')); await settleQueue(); }
+  assert.equal(sessions.some(s => s.connected), false);
+  assert.match(events[0].status.at(-1).message, /3\/4/);
+  pending.push(add().queue('P3', 'falcon', 'standard-2v2'));
+  await Promise.all(pending); await settleQueue();
+  assert.deepEqual(sessions.map(s => s.localPlayerId).sort(), [0, 1, 2, 3]);
+  for (const session of sessions) {
+    assert.equal(session.connected, true);
+    assert.equal(session.players.filter(p => !p.isBot).length, 4);
+    assert.equal(session.gameFormat, 'standard-2v2');
+  }
+});
+
+test('matchmaking queues isolate 1v1 and 2v2 and cancel releases both room and transient peers', async t => {
+  const { add, network, events } = queueHarness(t), duel = add(), teams = add();
+  const a = duel.queue('Duel', 'none', 'standard-1v1'), b = teams.queue('Team', 'none', 'standard-2v2');
+  const rejectedA = assert.rejects(a, /closed|canceled/i), rejectedB = assert.rejects(b, /closed|canceled/i);
+  await settleQueue();
+  assert.equal(duel.connected, false); assert.equal(teams.connected, false);
+  assert.match(events[0].status.at(-1).message, /1v1/); assert.match(events[1].status.at(-1).message, /2v2/);
+  duel.close(); teams.close(); await Promise.all([rejectedA, rejectedB]); await settleQueue();
+  assert.equal(network.peers.size, 0);
+  assert.equal(events[0].connected.length, 0); assert.equal(events[1].connected.length, 0);
+});
+
+test('canceling a waiting queue participant does not occupy a ghost slot', async t => {
+  const { add, events } = queueHarness(t), host = add(), leaving = add();
+  const first = host.queue('Host', 'ice', 'standard-2v2');
+  const cancelled = leaving.queue('Leaving', 'ice', 'standard-2v2'); const rejected = assert.rejects(cancelled, /closed|canceled/i);
+  await settleQueue(); leaving.close(); await rejected; await settleQueue();
+  assert.match(events[0].status.at(-1).message, /1\/4/);
+  const replacements = [add(), add(), add()];
+  await Promise.all([first, ...replacements.map((session, i) => session.queue(`New${i}`, 'ninja', 'standard-2v2'))]); await settleQueue();
+  assert.deepEqual(host.players.map(p => p.name).sort(), ['Host', 'New0', 'New1', 'New2']);
+});
+
+test('canceling the waiting coordinator lets remaining entrants elect a new coordinator and match', async t => {
+  const { add, events } = queueHarness(t), leaving = add(), staying = add();
+  const cancelled = leaving.queue('Leaving', 'ice', 'standard-2v2'); const rejected = assert.rejects(cancelled, /closed|canceled/i);
+  const first = staying.queue('Staying', 'ninja', 'standard-2v2');
+  await settleQueue(); leaving.close(); await rejected;
+  await new Promise(resolve => setTimeout(resolve, 400)); await settleQueue();
+  assert.match(events[1].status.at(-1).message, /1\/4/);
+  const others = [add(), add(), add()];
+  await Promise.all([first, ...others.map((s, i) => s.queue(`Other${i}`, 'none', 'standard-2v2'))]); await settleQueue();
+  assert.equal(staying.connected, true); assert.equal(staying.role, 'host');
+  assert.equal(staying.players.some(p => p.name === 'Leaving'), false);
+});
+
+test('a full completed queue frees rendezvous for the next match without affecting the first game', async t => {
+  const { add } = queueHarness(t), first = [add(), add()];
+  await Promise.all(first.map((s, i) => s.queue(`A${i}`, 'ice', 'standard-1v1'))); await settleQueue();
+  const code = first[0].roomCode, peer = first[0].peer;
+  const second = [add(), add()]; await Promise.all(second.map((s, i) => s.queue(`B${i}`, 'ninja', 'standard-1v1'))); await settleQueue();
+  assert.equal(first[0].roomCode, code); assert.equal(first[0].peer, peer); assert.equal(first[0].connected, true);
+  assert.notEqual(second[0].roomCode, code);
+  assert.equal(second.every(s => s.connected), true);
+});
+
+test('queue-only game room rejects an unrelated code join without stealing a selected slot', async t => {
+  const { add, events } = queueHarness(t), host = add(), stranger = add(), selected = add();
+  const pending = host.queue('Host', 'ice', 'standard-1v1'); await settleQueue();
+  await assert.rejects(stranger.join(host.roomCode, 'Stranger', 'none'), /reserved/);
+  assert.equal(host.players.length, 1); assert.equal(events[0].connected.length, 0);
+  await Promise.all([pending, selected.queue('Selected', 'ninja', 'standard-1v1')]); await settleQueue();
+  assert.equal(host.players[1].name, 'Selected'); assert.equal(host.connected, true);
+});
+
+test('queue cancellation before the first transport opens cannot later autojoin a stale assignment', async t => {
+  const { add, network, events } = queueHarness(t), cancelled = add();
+  const pending = cancelled.queue('Canceled', 'ice', 'standard-1v1'); const rejected = assert.rejects(pending, /closed|canceled/i);
+  cancelled.close(); await rejected; await settleQueue();
+  assert.equal(network.peers.size, 0); assert.equal(events[0].connected.length, 0);
+});
+
+
+test('canceling an assigned player before its room transfer refuses the whole incomplete batch', async t => {
+  const { add, sessions, events, network } = queueHarness(t), host = add(), cancel = add();
+  const hostPending = host.queue('Host', 'ice', 'standard-2v2');
+  const cancelPending = cancel.queue('Cancel', 'ninja', 'standard-2v2');
+  const hostRejected = assert.rejects(hostPending, /left|closed|canceled/i);
+  const cancelRejected = assert.rejects(cancelPending, /closed|canceled/i);
+  await settleQueue();
+  const originalResolve = cancel._matchmaker._resolve;
+  cancel._matchmaker._resolve = function (assignment) { originalResolve.call(this, assignment); cancel.close(); };
+  const rest = [add(), add()];
+  const restPending = rest.map((session, i) => session.queue(`Rest${i}`, 'none', 'standard-2v2'));
+  const restRejected = restPending.map(pending => assert.rejects(pending, /left|closed|canceled|unavailable|Missing host/i));
+  await Promise.all([hostRejected, cancelRejected, ...restRejected]); await settleQueue();
+  assert.equal(sessions.some(session => session.connected), false);
+  assert.equal(events.some(event => event.connected.length), false);
+  assert.equal(network.peers.size, 0);
+});
+
+test('stale queue packets on the wrong role and wrong protocol cannot force assignment or consume a slot', async t => {
+  const { add, network } = queueHarness(t), host = add(), waiting = add();
+  const hostPending = host.queue('Host', 'ice', 'standard-2v2');
+  const waitingPending = waiting.queue('Waiting', 'ninja', 'standard-2v2');
+  const hostRejected = assert.rejects(hostPending, /closed|canceled/i), waitingRejected = assert.rejects(waitingPending, /closed|canceled/i);
+  await settleQueue();
+  const outgoing = [...waiting._matchmaker.records.values()][0].connection;
+  const protocol = network.messages.find(({ message }) => message.type === 'join').message.protocol;
+  outgoing.send({ protocol, format: 'standard-2v2', type: 'assignment', roomCode: 'AB12', admissionToken: '0'.repeat(48) });
+  outgoing.send({ protocol: 'wrong', format: 'standard-2v2', type: 'join' });
+  outgoing.send({ protocol, format: 'standard-1v1', type: 'join' });
+  outgoing.send({ protocol, format: 'standard-2v2', type: 'join' });
+  await settleQueue();
+  assert.equal(host._matchmaker.assigned, false);
+  assert.equal(host._matchmaker.records.size, 1);
+  assert.equal(host.connected, false);
+  host.close(); waiting.close(); await Promise.all([hostRejected, waitingRejected]);
+});
+
+
+test('concurrent entrants beyond a full queue survive handoff and form a separate next game', async t => {
+  const { add, sessions } = queueHarness(t);
+  const pending = [add().queue('A0', 'ice', 'standard-1v1'), add().queue('A1', 'ice', 'standard-1v1'), add().queue('B0', 'ninja', 'standard-1v1')];
+  await Promise.all(pending.slice(0, 2)); await settleQueue();
+  assert.equal(sessions[0].connected, true); assert.equal(sessions[1].connected, true);
+  assert.equal(sessions[2].connected, false);
+  await new Promise(resolve => setTimeout(resolve, 400)); await settleQueue();
+  pending.push(add().queue('B1', 'ninja', 'standard-1v1'));
+  await Promise.all(pending); await settleQueue();
+  assert.equal(sessions[2].connected, true); assert.equal(sessions[3].connected, true);
+  assert.equal(sessions[0].roomCode, sessions[1].roomCode);
+  assert.equal(sessions[2].roomCode, sessions[3].roomCode);
+  assert.notEqual(sessions[0].roomCode, sessions[2].roomCode);
+});
+
+
+test('reliably delivered coordinator cancellation preserves unassigned followers for re-election', async t => {
+  const { add, network, events } = queueHarness(t), leaving = add(), staying = add();
+  const cancelled = leaving.queue('Leaving', 'ice', 'standard-2v2'); const rejected = assert.rejects(cancelled, /closed|canceled/i);
+  const first = staying.queue('Staying', 'ninja', 'standard-2v2');
+  await settleQueue(); network.delivery.synchronous = true;
+  leaving.close(); await rejected;
+  assert.equal(staying._closed, false, 'an explicit coordinator retry, delivered before channel close, preserves the waiting entrant');
+  assert.equal(events[1].disconnected.length, 0);
+  await new Promise(resolve => setTimeout(resolve, 400)); await settleQueue();
+  const others = [add(), add(), add()];
+  await Promise.all([first, ...others.map((s, i) => s.queue(`Other${i}`, 'none', 'standard-2v2'))]); await settleQueue();
+  assert.equal(staying.connected, true); assert.equal(staying.role, 'host');
+  assert.equal(staying.players.some(p => p.name === 'Leaving'), false);
 });

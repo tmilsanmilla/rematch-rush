@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { ROSTER, getSkills } from './characters.js';
+import { normalizeRoomConfig } from './online.js';
 
 function appHarness() {
   const nodes = new Map(), listeners = new Map(), intervals = new Map();
@@ -10,8 +11,8 @@ function appHarness() {
   let timerId = 0;
   const node = selector => {
     if (!nodes.has(selector)) nodes.set(selector, {
-      innerHTML: '', textContent: '', hidden: true, style: {}, dataset: {},
-      classList: { toggle() {} }, setAttribute() {}, addEventListener() {},
+      innerHTML: '', textContent: '', hidden: true, disabled: false, value: '', isConnected: true, style: {}, dataset: {}, attrs: {},
+      classList: { toggle() {}, add() {}, remove() {} }, setAttribute(name, value) { this.attrs[name] = value; }, addEventListener() {},
       focus() { this.focused = true; },
       querySelector: node, querySelectorAll: () => [],
     });
@@ -26,6 +27,9 @@ function appHarness() {
     document, ROSTER, getSkills,
     OnlineSession: class {
       constructor(options) { this.options = options; this.role = 'host'; this.closed = false; this.starts = 0; sessions.push(this); }
+      queue(...args) { this.queued = args; return new Promise((resolve, reject) => { this.resolveQueue = resolve; this.rejectQueue = reject; }); }
+      async create(...args) { this.created = args; this.roomCode = 'AB12'; return this.roomCode; }
+      async join(...args) { this.joined = args; this.roomCode = args[0]; return this.roomCode; }
       close() { this.closed = true; }
       startRound() { this.starts++; return true; }
       markRoundEnded() { this.ended = true; }
@@ -56,9 +60,13 @@ function appHarness() {
       const button = { dataset: { action, key, character, format, spin } };
       listeners.get('click')({ target: { closest: () => button }, detail });
     },
-    shotPointer(type, pointerId = 1) {
-      const button = { dataset: { action: 'shoot' }, setPointerCapture() {} };
+    shotPointer(type, pointerId = 1, action = 'shoot') {
+      const button = { dataset: { action }, setPointerCapture() {} };
       listeners.get(type)({ target: { closest: () => button }, button: 0, pointerId, preventDefault() {} });
+    },
+    change(id, value) {
+      const target = node(`#${id}`); target.id = id; target.value = value;
+      listeners.get('change')({ target });
     },
     finishSpin() {
       for (let tick = 0; tick < 20 && intervals.size; tick++) [...intervals.values()].forEach(callback => callback());
@@ -99,38 +107,48 @@ test('the local power HUD retains the released shot strength instead of immediat
   assert.equal(app.node('#charge-fill').style.width, '42%');
 });
 
-test('every character has a separate Ultrashot control without an F label and its own next-shot counter', () => {
+test('every character shows separate normal shooting and an F Ultrashot charged by three kicks', () => {
   const app = appHarness(); app.setGame({});
   for (const character of ROSTER) {
     const match = state(character.id);
     app.updateHUD(match);
-    assert.doesNotMatch(app.node('#ability-list').innerHTML, /data-action="shoot"/);
-    assert.match(app.node('#ultra-shot-control').innerHTML, /data-action="shoot"/);
-    assert.match(app.node('#ultra-shot-control').innerHTML, /<b>Ultrashot<\/b>/);
-    assert.doesNotMatch(app.node('#ultra-shot-control').innerHTML, /<kbd>F<\/kbd>/);
-    assert.equal(app.node('#ultra-shot-status').textContent, '3 SHOTS TO ULTRA');
-    match.players[0].shotsTaken = 1; app.updateHUD(match);
-    assert.equal(app.node('#ultra-shot-status').textContent, '2 SHOTS TO ULTRA');
-    match.players[0].shotsTaken = 2; app.updateHUD(match);
-    assert.equal(app.node('#ultra-shot-status').textContent, 'ULTRA READY · CURVE / QUICK');
-    match.players[0].shotsTaken = 3; app.updateHUD(match);
-    assert.equal(app.node('#ultra-shot-status').textContent, '3 SHOTS TO ULTRA');
+    const controls = app.node('#ultra-shot-control').innerHTML;
+    assert.match(controls, /data-action="shoot"/);
+    assert.match(controls, /data-action="ultrashot"/);
+    assert.match(controls, /<kbd>F<\/kbd>/);
+    assert.match(controls, /<b>Ultrashot<\/b>/);
+    assert.equal(app.node('#ultra-shot-status').textContent, '3 KICKS TO ULTRA');
+    for (const [charge, expected] of [[1, '2 KICKS TO ULTRA'], [2, '1 KICKS TO ULTRA'], [3, 'ULTRA READY · F'], [4, 'ULTRA READY · F']]) {
+      match.players[0].ultraCharge = charge; app.updateHUD(match);
+      assert.equal(app.node('#ultra-shot-status').textContent, expected);
+    }
+    match.players[0].ultraCharge = 0; app.updateHUD(match);
+    assert.equal(app.node('#ultra-shot-status').textContent, '3 KICKS TO ULTRA', 'only an actual explicit Ultra resets the meter');
   }
 });
 
-test('holding the separate Ultrashot button releases once, including pointer capture loss and keyboard activation', () => {
+test('normal and Ultrashot pointer controls use separate APIs and release once after capture loss', () => {
   const app = appHarness(), calls = [];
-  app.setGame({startShot() { calls.push('start'); return true; }, releaseShot() { calls.push('release'); }});
+  app.setGame({
+    startShot() { calls.push('normal-start'); return true; }, releaseShot() { calls.push('normal-release'); },
+    startUltrashot() { calls.push('ultra-start'); return true; }, releaseUltrashot() { calls.push('ultra-release'); },
+  });
   app.shotPointer('pointerdown', 4);
-  assert.deepEqual(calls, ['start']);
   app.shotPointer('pointerup', 4);
   app.shotPointer('lostpointercapture', 4);
   app.click('shoot', undefined, 1);
-  assert.deepEqual(calls, ['start', 'release'], 'pointer click must not fire a second tap');
+  assert.deepEqual(calls, ['normal-start', 'normal-release'], 'pointer click must not fire a second tap');
   app.click('shoot');
-  assert.deepEqual(calls, ['start', 'release', 'start', 'release']);
-  app.shotPointer('pointerdown', 5); app.shotPointer('pointercancel', 5);
-  assert.deepEqual(calls.slice(-2), ['start', 'release']);
+  assert.deepEqual(calls.slice(-2), ['normal-start', 'normal-release']);
+  app.shotPointer('pointerdown', 5, 'ultrashot');
+  app.shotPointer('pointerup', 5, 'ultrashot');
+  app.shotPointer('lostpointercapture', 5, 'ultrashot');
+  app.click('ultrashot', undefined, 1);
+  assert.deepEqual(calls.slice(-2), ['ultra-start', 'ultra-release']);
+  app.click('ultrashot');
+  assert.deepEqual(calls.slice(-2), ['ultra-start', 'ultra-release']);
+  app.shotPointer('pointerdown', 6, 'shoot'); app.shotPointer('pointercancel', 6, 'shoot');
+  assert.deepEqual(calls.slice(-2), ['normal-start', 'normal-release']);
 });
 
 test('ability, tackle, and awakening buttons call the game directly and return focus to the pitch', () => {
@@ -349,8 +367,9 @@ test('every character guide visibly explains regular moves, possession variants,
       assert.ok(html.includes(`<p>${escapeMarkup(character.passive.description)}</p>`));
     }
     assert.match(html, /Ultrashot · every character/);
-    assert.match(html, /Every third shot becomes a boosted Curve Shot or Quick Shot/);
-    assert.doesNotMatch(html, /<kbd>F<\/kbd>/);
+    assert.match(html, /[Ee]very kick/);
+    assert.match(html, /(?:hold|press) F/i);
+    assert.doesNotMatch(html, /Every third shot becomes/);
   }
   for (const id of ['playmaker', 'magician', 'trapper', 'supersonic']) {
     app.click('select-character', undefined, 0, id);
@@ -442,25 +461,47 @@ test('normal and lucky spin tiers use the exact Arrival of the Best odds', () =>
   assert.match(app.node('#modal-content').innerHTML,/Unlimited lucky spins available/);
 });
 
-test('match selection exposes all four formats and a four-character join form', () => {
-  const app=appHarness();app.click('match');
-  for(const format of Object.values(app.GAME_FORMATS))assert.ok(app.node('#modal-content').innerHTML.includes(format.name));
-  app.click('online-mode',undefined,0,undefined,'standard-2v2');
-  assert.match(app.node('#modal-content').innerHTML,/all 4 human players/);
+test('match selection separates offline bot matches from queued online matches and code rooms', async () => {
+  const app = appHarness(); app.click('match');
+  const html = app.node('#modal-content').innerHTML;
+  assert.match(html, />Offline /);
+  assert.match(html, />Online /);
+  for (const format of ['bot-standard', 'bot-2v2']) assert.match(html, new RegExp(`data-action="play-bot"[^>]*data-format="${format}"`));
+  for (const format of ['standard-1v1', 'standard-2v2']) assert.match(html, new RegExp(`data-action="queue-online"[^>]*data-format="${format}"`));
+  assert.match(html, /Create a room/);
+  app.click('queue-online', undefined, 0, undefined, 'standard-2v2');
+  assert.equal(app.sessions.length, 1);
+  assert.equal(app.sessions[0].queued[2], 'standard-2v2', '2v2 enters actual matchmaking without opening a room-code form');
+  assert.equal(app.sessions[0].created, undefined);
+  assert.equal(app.sessions[0].joined, undefined);
+  assert.match(app.node('#modal-content').innerHTML, /[Ss]earch|[Qq]ueue|[Mm]atchmaking/);
+  assert.doesNotMatch(app.node('#modal-content').innerHTML, /id="created-room-code"|id="room-code-input"/);
+  app.click('cancel-queue');
+  assert.equal(app.sessions[0].closed, true);
   app.click('join-online');
-  assert.match(app.node('#modal-content').innerHTML,/maxlength="4" minlength="4" pattern="\[A-Za-z0-9\]\{4\}"/);
-  app.click('play-bot');
-  assert.equal(app.games[0].options.gameFormat,'bot-standard');
+  assert.match(app.node('#modal-content').innerHTML, /maxlength="4" minlength="4" pattern="\[A-Za-z0-9\]\{4\}"/);
+});
+
+test('both offline bot formats start immediately and an offline rematch retains the selected format', () => {
+  for (const format of ['bot-standard', 'bot-2v2']) {
+    const app = appHarness(); app.click('play-bot', undefined, 0, undefined, format);
+    assert.equal(app.games[0].options.gameFormat, format);
+    assert.equal(app.games[0].options.mode, 'bot');
+    assert.equal(app.sessions.length, 0, 'offline modes need no room or signaling service');
+    app.games[0].state.phase = 'ended'; app.matchEnded(app.games[0].state);
+    app.click('rematch');
+    assert.equal(app.games[1].options.gameFormat, format);
+  }
 });
 
 test('a team guest HUD follows its own player rather than the first same-team player', () => {
   const app=appHarness();app.setGame({});app.setLocalTeam(0);app.setLocalPlayerId(2);
   const match=state('none');match.players[0].charge=12;
-  match.players.push({id:2,team:0,character:'powershooter',charge:67,cooldowns:[],shotsTaken:2,ability:{reactionReady:0,reactionPromptLeft:8,reactionPrompt:'Press 4 to confirm the chemical reaction.'}});
+  match.players.push({id:2,team:0,character:'powershooter',charge:67,cooldowns:[],shotsTaken:2,ultraCharge:3,ability:{reactionReady:0,reactionPromptLeft:8,reactionPrompt:'Press 4 to confirm the chemical reaction.'}});
   app.updateHUD(match);
   assert.equal(app.node('#charge-value').textContent,'67 / 100');
   assert.match(app.node('#ability-list').innerHTML,/Power shot/);
-  assert.equal(app.node('#ultra-shot-status').textContent,'ULTRA READY · CURVE / QUICK');
+  assert.equal(app.node('#ultra-shot-status').textContent,'ULTRA READY · F');
   assert.equal(app.node('#chemical-notice').hidden,false);
   assert.match(app.node('#chemical-notice').textContent,/Press 4/);
   Object.assign(match,{phase:'replay',scorer:0,scorerTeam:0});app.updateHUD(match);
@@ -479,15 +520,42 @@ test('team lobbies show the roster and host input uses the authenticated player 
 });
 
 
-test('switching room format cancels the opening room and lobby disconnect enables retry', () => {
-  const app=appHarness(),session=app.newOnlineSession();
-  app.click('room-format',undefined,0,undefined,'bot-team');
-  assert.equal(session.closed,true);
-  assert.match(app.node('#modal-content').innerHTML,/Bot Team Standard/);
-  const next=app.newOnlineSession();app.node('#join-room-button').disabled=true;
-  next.options.onDisconnect({message:'The host left the room.'});
-  assert.equal(app.node('#join-room-button').disabled,false);
-  assert.match(app.node('#online-panel').innerHTML,/Join another room/);
+test('leaving matchmaking closes the old session and ignores a late matched callback', () => {
+  const app = appHarness();
+  app.click('queue-online', undefined, 0, undefined, 'standard-1v1');
+  const old = app.sessions[0];
+  app.click('cancel-queue');
+  old.options.onConnected({role:'host', localTeam:0, gameFormat:'standard-1v1', players:[{id:0,team:0,name:'Player'},{id:1,team:1,name:'Rival'}]});
+  assert.equal(old.closed, true);
+  assert.equal(app.games.length, 0, 'late queue delivery cannot pull a canceled player into a game');
+  app.click('queue-online', undefined, 0, undefined, 'standard-2v2');
+  assert.equal(app.sessions.length, 2);
+  assert.equal(app.sessions[1].queued[2], 'standard-2v2');
+});
+
+test('a queue failure preserves the menu and exposes retry instead of room-code creation', async () => {
+  const app = appHarness();
+  app.click('queue-online', undefined, 0, undefined, 'standard-1v1');
+  const session = app.sessions[0];
+  session.rejectQueue(new Error('The matchmaking service could not be reached.'));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(app.games.length, 0);
+  assert.match(app.node('#room-status').innerHTML, /The matchmaking service could not be reached/);
+  assert.match(app.node('#modal-content').innerHTML + app.node('#online-panel').innerHTML, /[Tt]ry again|[Rr]etry|queue-online/);
+});
+
+test('pass buttons stay visible, explain 1v1 unavailability, and enable for a same-team partner', () => {
+  const app = appHarness(); let passes = 0; app.setGame({usePass(){passes++;}});
+  const match = state(); app.updateHUD(match);
+  for (const id of ['#pass-button', '#touch-pass-button']) {
+    assert.equal(app.node(id).hidden, false);
+    assert.equal(app.node(id).disabled, true);
+    assert.match(app.node(id).title || '', /[Tt]eammate|[Tt]eam/);
+  }
+  match.players.push({id:2,team:0,character:'none',charge:0,cooldowns:[]}); app.updateHUD(match);
+  assert.equal(app.node('#pass-button').disabled, false);
+  assert.equal(app.node('#touch-pass-button').disabled, false);
+  app.click('pass'); assert.equal(passes, 1);
 });
 
 test('the UI and simulation import the same character revision and team pass calls the engine', () => {
@@ -495,4 +563,97 @@ test('the UI and simulation import the same character revision and team pass cal
   const gameSource=readFileSync(new URL('./game.js',import.meta.url),'utf8');
   assert.equal(appSource.match(/characters\.js\?v=(\d+)/)[1],gameSource.match(/characters\.js\?v=(\d+)/)[1]);
   const app=appHarness();let passes=0;app.setGame({usePass(){passes++;}});app.click('pass');assert.equal(passes,1);
+});
+
+
+test('custom-room controls send the chosen human and bot roster and game settings without entering a queue', async () => {
+  const app = appHarness(); app.click('online');
+  const html = app.node('#modal-content').innerHTML;
+  for (const id of ['room-slot-1', 'room-slot-2', 'room-slot-3', 'room-duration', 'room-score-limit']) assert.ok(html.includes(`id="${id}"`));
+  app.change('room-slot-2', 'bot'); app.change('room-slot-1', 'human'); app.change('room-slot-3', 'bot');
+  app.change('room-duration', '600'); app.change('room-score-limit', '5');
+  assert.match(app.node('#custom-room-summary').textContent, /You \+ Bot vs Friend \+ Bot.*10 minutes.*First to 5/);
+  app.click('create-room');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(app.sessions.length, 1);
+  const session = app.sessions[0];
+  assert.equal(session.created[2], 'custom');
+  assert.equal(JSON.stringify(session.created[3]), JSON.stringify({slots:['human','human','bot','bot'],duration:600,scoreLimit:5}));
+  assert.equal(session.queued, undefined);
+  assert.match(app.node('#online-panel').innerHTML, /AB12/);
+});
+
+test('custom-room selection supports 1v1 and guards an empty opposing team', () => {
+  const app = appHarness(); app.click('online');
+  app.change('room-slot-2', 'empty'); app.change('room-slot-3', 'empty');
+  assert.match(app.node('#custom-room-summary').textContent, /You vs Friend/);
+  assert.equal(app.node('#create-room-button').disabled, false);
+  app.change('room-slot-1', 'empty');
+  assert.equal(app.node('#create-room-button').disabled, true);
+  assert.match(app.node('#custom-room-summary').textContent, /Add a friend or bot to the red team/);
+  app.change('room-slot-3', 'bot');
+  assert.equal(app.node('#create-room-button').disabled, false);
+  assert.match(app.node('#custom-room-summary').textContent, /You vs Bot/);
+});
+
+test('custom online settings and exact slot identities survive both initial start and same-room rematch', () => {
+  for (const role of ['host', 'guest']) {
+    const app = appHarness(), session = app.newOnlineSession(); session.role = role;
+    const settings = {slots:['human','human','bot','bot'],duration:120,scoreLimit:3};
+    const players = [
+      {id:0,team:0,name:'You',character:'none',isBot:false},
+      {id:1,team:1,name:'Friend',character:'ice',isBot:false},
+      {id:2,team:0,name:'Blue bot',character:'powershooter',isBot:true},
+      {id:3,team:1,name:'Red bot',character:'ninja',isBot:true},
+    ];
+    const localPlayerId = role === 'host' ? 0 : 1;
+    session.options.onConnected({role, localTeam:localPlayerId, localPlayerId, gameFormat:'custom', settings, players,remoteProfile:{username:'Friend',character:'ice'}});
+    assert.equal(app.games[0].options.gameFormat, 'custom');
+    assert.equal(app.games[0].options.localPlayerId, localPlayerId);
+    assert.equal(JSON.stringify(app.games[0].options.settings), JSON.stringify(settings));
+    assert.equal(JSON.stringify(app.games[0].options.players), JSON.stringify(players));
+    app.games[0].state.phase = 'ended'; app.matchEnded(app.games[0].state); app.click('rematch'); session.options.onRematchReady();
+    assert.equal(app.games.length, 2);
+    assert.equal(JSON.stringify(app.games[1].options.settings), JSON.stringify(settings));
+    assert.equal(JSON.stringify(app.games[1].options.players), JSON.stringify(players));
+    assert.equal(session.closed, false);
+  }
+});
+
+
+test('every custom-game setting exposed by the UI is accepted by the actual online contract', () => {
+  const app = appHarness(); app.click('online');
+  const html = app.node('#modal-content').innerHTML;
+  const options = id => [...html.match(new RegExp(`<select id="${id}"[^>]*>([\\s\\S]*?)<\\/select>`))[1].matchAll(/<option value="(\d+)"/g)].map(match => Number(match[1]));
+  for (const duration of options('room-duration')) for (const scoreLimit of options('room-score-limit')) {
+    assert.doesNotThrow(() => normalizeRoomConfig({slots:['human','human','bot','bot'],duration,scoreLimit}), `${duration}s / ${scoreLimit} goals is visible in the menu`);
+  }
+});
+
+test('reopening an invalid custom roster keeps Create disabled until an opponent is selected', () => {
+  const app = appHarness(); app.click('online');
+  app.change('room-slot-1', 'empty'); app.change('room-slot-3', 'empty');
+  app.click('close-modal'); app.click('online');
+  const html = app.node('#modal-content').innerHTML;
+  assert.match(html, /id="create-room-button"[^>]*\sdisabled(?:\s|>)/);
+  assert.match(html, /id="custom-room-summary">Add a friend or bot to the red team\./);
+  app.change('room-slot-1', 'human');
+  assert.equal(app.node('#create-room-button').disabled, false);
+  assert.match(app.node('#custom-room-summary').textContent, /Friend/);
+});
+
+test('matchmaking suppresses provisional room-code instructions while preserving real progress and errors', () => {
+  const app = appHarness(); app.click('queue-online', undefined, 0, undefined, 'standard-2v2');
+  const session = app.sessions[0];
+  for (const type of ['connecting', 'waiting']) {
+    session.options.onStatus({type,message:'Room AB12: 1/4 players. Share the code with your friends.'});
+    assert.doesNotMatch(app.node('#room-status').innerHTML, /AB12|Share the code|Room/);
+  }
+  session.options.onStatus({type:'queue',message:'Searching for 2v2 players… 3/4 ready.'});
+  assert.match(app.node('#room-status').innerHTML, /Searching for 2v2 players.*3\/4 ready/);
+  session.options.onStatus({type:'waiting',message:'Room AB12: 3/4 players. Share the code with your friends.'});
+  assert.match(app.node('#room-status').innerHTML, /Searching for 2v2 players.*3\/4 ready/);
+  assert.doesNotMatch(app.node('#room-status').innerHTML, /AB12|Share the code/);
+  session.options.onStatus({type:'error',message:'Matchmaking could not reach the service.'});
+  assert.match(app.node('#room-status').innerHTML, /Matchmaking could not reach the service/);
 });

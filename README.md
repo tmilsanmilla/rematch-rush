@@ -2,7 +2,11 @@
 
 [Play Rematch Rush](https://rematch-rush.vercel.app/) · [GitHub Pages backup](https://tmilsanmilla.github.io/rematch-rush/)
 
-A character-powered football game. The **Arrival of the Best** update includes 1v1 Standard, 2v2 Standard, solo Bot Standard, and two-player Bot Team Standard, with AI goalkeepers and passing bots.
+A character-powered football game with separate Offline and Online match menus. Every team has an AI goalkeeper.
+
+- Offline: Bot Standard is you versus one bot; 2v2 vs Bots adds a bot teammate and two bot opponents.
+- Online: 1v1 and 2v2 enter separate public matchmaking queues for two or four human players. Canceling leaves the queue.
+- Custom rooms: choose human, bot, or empty outfield slots for each team, a 2/5/10-minute match, and an optional first-to-3/5/10 goal target. Share a four-character code with friends. For example, you + bot versus friend + bot.
 
 Choose a character in the Characters tab to read its moves, follow-ups, passives and awakening. Normal and lucky spins are currently unlimited.
 
@@ -11,13 +15,17 @@ Choose a character in the Characters tab to read its moves, follow-ups, passives
 - WASD or arrow keys: move
 - Mouse: aim
 - Ctrl: toggle cursor lock; Esc: release it
-- F or the Ultrashot button: hold to charge, release to shoot
+- Left mouse button or Shoot: hold to charge a normal shot, release to kick
+- Every successful kick (including passes and kicking moves) adds one Ultrashot charge, capped at three; empty attempts do not count
+- F or the Ultrashot button: after three kicks, hold then release to use a Curve Shot or Quick Shot; normal clicks never spend the charge
 - C: tackle or dribble
-- Q: pass to a teammate
+- Q or Pass: pass to a teammate (disabled with an explanation in 1v1)
 - 1–5: character moves
 - E: awakening
 
-Online players join with a four-character room code. Rooms start when all human players have joined; everyone can rematch in the same room. Online connections use PeerJS/WebRTC and depend on the players’ networks.
+Queued matches start automatically once enough real players connect; they never silently fill with bots. A transient PeerJS rendezvous groups waiting browsers and hands them to a separate host-authoritative game connection. Custom rooms start when their configured human slots have joined; bot-only remaining slots can start immediately. Everyone can rematch with the same teams and settings. Online connections use PeerJS/WebRTC and depend on the players’ networks; restrictive networks without a working direct route may need a different connection.
+
+Queue and room protocol is v4, so all players should refresh together after a release. Local mocked-peer tests exercise matchmaking, cancellation, handoff, and rematches; these are not live two-browser network acceptance.
 
 ## Local development
 
