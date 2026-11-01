@@ -267,3 +267,9 @@
 @media(max-width:520px){.match-notices{top:65px}.match-field .replay-label{top:70px}.game-screen .touch-controls{bottom:200px}.game-bottom{bottom:8px;left:8px;right:8px}}
 @media(max-height:600px){.match-notices{top:55px}.match-field .replay-label{top:60px}.game-screen .touch-controls{bottom:120px}}
 @media(max-width:520px) and (max-height:600px){.game-screen .touch-controls{bottom:180px}}
+
+/* Pointer lock is opt-in; the ordinary mouse remains the default. */
+.game-actions .cursor-lock-button:first-child{display:inline-flex;width:auto;min-width:58px;padding:0 8px;font-size:8px;letter-spacing:.4px}
+.game-actions .cursor-lock-button[aria-pressed="true"]{color:#f4d584;border-color:#f4d58499;background:#f4d58420}
+@media(max-width:520px){.game-actions .sound-button{display:none}}
+@media(pointer:coarse){.game-actions .cursor-lock-button:first-child{display:none}}

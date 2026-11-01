@@ -42,7 +42,7 @@ test('team bots make genuine passes and move into separate supporting lanes',()=
 test('keepers recognize all opposing carriers and track their own aerial distribution through landing',()=>{
  const game=match(),keeper=game.state.keepers[0],secondRival=game.state.players[3];
  Object.assign(secondRival,{x:180,y:350});game.setOwner(secondRival);game.updateKeepers(.1);assert.ok(keeper.x>98,'the keeper closes the second opponent as well');
- game.state.players.forEach((p,i)=>Object.assign(p,{x:500+i*100,y:i%2?550:100}));game.keeperCatch(keeper);advance(game,2.02);
+ game.state.players.forEach((p,i)=>Object.assign(p,{x:500+i*100,y:i%2?550:100,recovery:5}));game.keeperCatch(keeper);advance(game,2.02);
  const thrown=game.state.ball.distribution;assert.equal(thrown.team,0);assert.equal(thrown.keeperId,'k0');assert.ok(thrown.age<.05);assert.equal(thrown.landedAge,null);assert.equal(game.state.ball.hadAirtime,true);
  advance(game,1.3);assert.ok(thrown.age>1.3);assert.ok(thrown.landedAge!==null&&thrown.landedAge>=0);
 });

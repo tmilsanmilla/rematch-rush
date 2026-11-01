@@ -7,7 +7,7 @@ import { normalizeRoomConfig } from './online.js';
 import { ACTION_COOLDOWNS } from './game.js';
 
 function appHarness() {
-  const nodes = new Map(), listeners = new Map(), intervals = new Map();
+  const nodes = new Map(), listeners = new Map(), intervals = new Map(), windowListeners = new Map();
   const sessions = [], games = [];
   let timerId = 0;
   const node = selector => {
@@ -46,7 +46,7 @@ function appHarness() {
       exportState() { return this.state; }
       setInput() {}
     },
-    window: { addEventListener() {}, scrollTo() {}, dispatchEvent() { throw new Error('UI actions must use the game API.'); } },
+    window: { addEventListener(type, listener) { windowListeners.set(type, listener); }, scrollTo() {}, dispatchEvent() { throw new Error('UI actions must use the game API.'); } },
     localStorage: { getItem: () => null, setItem() {} },
     Math: Object.assign(Object.create(Math), { random: () => 0 }),
     setTimeout: () => 0, clearTimeout() {},
@@ -57,6 +57,7 @@ function appHarness() {
   runInNewContext(`${source}\nglobalThis.uiHarness = { updateHUD, renderPlaybook, spinRarity, SPIN_ODDS, GAME_FORMATS, newOnlineSession, matchEnded, updateRematchStatus, setGame(value) { game = value; currentScreen = 'game'; }, setLocalTeam(value) { localTeam = value; localPlayerId = value; }, setLocalPlayerId(value) { localPlayerId = value; }, resetHUD() { hudSignature = null; } };`, context);
   return {
     ...context.uiHarness, node, sessions, games,
+    key(key) { windowListeners.get('keydown')({key,target:{tagName:'BODY'},preventDefault(){},stopImmediatePropagation(){}}); },
     click(action, key, detail = 0, character, format, spin) {
       const button = { dataset: { action, key, character, format, spin } };
       listeners.get('click')({ target: { closest: () => button }, detail });
@@ -430,14 +431,20 @@ test('full-time results stay available until the player rematches or leaves', ()
   assert.equal(session.closed, true);
 });
 
-test('the game UI keeps normal mouse aiming without lock buttons or crosshair instructions', () => {
-  const app=appHarness();app.click('play-bot');
-  assert.equal(app.games[0].options.onCursorLockChange, undefined);
-  const html=readFileSync(new URL('./index.html',import.meta.url),'utf8');
-  assert.doesNotMatch(html,/cursor-lock|CTRL LOCK|crosshair/i);
-  app.click('help');
-  assert.match(app.node('#modal-content').innerHTML,/Point at the pitch to choose your shot direction/);
-  assert.doesNotMatch(app.node('#modal-content').innerHTML,/lock cursor|cursor lock|crosshair/i);
+test('the game UI preserves ordinary aiming and exposes an explicit optional cursor-lock control', () => {
+  const app=appHarness();let locked=false,calls=0;
+  app.setGame({isCursorLocked:()=>locked,toggleCursorLock(){locked=!locked;calls++;}});app.updateHUD(state());
+  assert.equal(app.node('#cursor-lock-button').attrs['aria-pressed'],'false');assert.equal(app.node('#cursor-lock-button').textContent,'CTRL LOCK');
+  app.click('cursor-lock');app.updateHUD(state());assert.equal(calls,1);assert.equal(app.node('#cursor-lock-button').textContent,'UNLOCK');assert.equal(app.node('#cursor-lock-button').attrs['aria-pressed'],'true');
+  const html=readFileSync(new URL('./index.html',import.meta.url),'utf8');assert.match(html,/data-action="cursor-lock"/);
+  app.click('help');assert.match(app.node('#modal-content').innerHTML,/Point at the pitch to choose your shot direction/);assert.match(app.node('#modal-content').innerHTML,/Optional Ctrl lock/);assert.match(app.node('#modal-content').innerHTML,/only the final shot/);
+});
+
+test('Escape releases optional cursor lock without opening the help overlay',()=>{
+ const app=appHarness();let locked=true,unlocks=0;
+ app.setGame({isCursorLocked:()=>locked,unlockCursor(){locked=false;unlocks++;}});
+ app.key('Escape');assert.equal(unlocks,1);assert.equal(app.node('#modal').hidden,true);
+ app.key('Escape');assert.equal(app.node('#modal').hidden,false);assert.match(app.node('#modal-content').innerHTML,/THE BASICS/);
 });
 
 test('character cards are ordered Common through Master, with the starter still available afterward', () => {

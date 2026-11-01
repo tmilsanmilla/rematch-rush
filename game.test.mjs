@@ -108,18 +108,18 @@ test('a repeat dribble is ready before the next slide and can counter it without
   assert.equal(attacker.motion,null,'a countered slide cannot keep stealing afterward');
 });
 
-test('scoring replay includes up to ten seconds of buildup and uses the same duration for both peers', () => {
+test('scoring replay includes only the shot and uses the same short duration for both peers', () => {
   const game=match();advance(game,8);
   const p=game.state.players[0];Object.assign(p,{x:700,y:350,aim:{x:1130,y:285}});
   game.setOwner(p);game.state.keepers[1].y=870;
   const shotStart=game.state.elapsed;withRandom(()=>0,()=>game.kick(p,40));
   for(let i=0;i<200&&game.state.phase==='play';i++)game.update(.01);
   assert.equal(game.state.phase,'celebrate');
-  assert.ok(game.goalReplay.length>90&&game.goalReplay.length<=127);
-  assert.ok(game.goalReplay[0].at<shotStart-7);
-  assert.ok(game.goalReplay.at(-1).at-game.goalReplay[0].at<=10);
+  assert.ok(game.goalReplay.length>=2&&game.goalReplay.length<30);
+  assert.equal(game.goalReplay[0].at,shotStart);
+  assert.ok(game.goalReplay.at(-1).at-game.goalReplay[0].at<=3);
   assert.ok(game.goalReplay.at(-1).ball.x>1130);
-  assert.ok(game.state.replayDuration>8&&game.state.replayDuration<=10);
+  assert.ok(game.state.replayDuration>=.45&&game.state.replayDuration<=3);
   const guest=new Game(null,{mode:'guest',localTeam:1});guest.importState(game.exportState());
   assert.deepEqual(guest.goalReplay,game.goalReplay);
   assert.equal(guest.state.replayDuration,game.state.replayDuration);
@@ -264,14 +264,15 @@ test('a bot moves while charging with one stable aim and releases a midfield sho
   for(const localTeam of [0,1]){
     const {game,bot,kicks}=botAttack('manmarker',localTeam);game.update(.02);
     const aim={...game.botShot.aim},power=game.botShot.power,position={x:bot.x,y:bot.y},charge=bot.charge;
-    advance(game,.5);
+    advance(game,.1);
     assert.deepEqual(game.botShot.aim,aim);assert.equal(game.botShot.power,power);
-    assert.ok(Math.hypot(bot.x-position.x,bot.y-position.y)>60,'the charging bot keeps moving');
-    assert.ok(Math.abs(bot.y-position.y)>40,'movement creates a sideways shooting angle');
-    near(bot.charge-charge,12.5*.5);assert.equal(bot.dribbleCd,0);assert.equal(bot.motion,null);
+    assert.ok(Math.hypot(bot.x-position.x,bot.y-position.y)>10,'the charging bot keeps moving');
+    assert.ok(Math.abs(bot.y-position.y)>7,'movement creates a sideways shooting angle');
+    near(bot.charge-charge,100*.1);assert.equal(bot.dribbleCd,0);assert.equal(bot.motion,null);
     for(let i=0;i<100&&!kicks.length;i++)game.update(.02);
-    assert.equal(kicks.length,1);assert.ok(kicks[0].at<=1.6,'normal charge must finish within 1.6 seconds');
-    assert.ok(kicks[0].power>=18&&kicks[0].power<=24.5);
+    assert.equal(kicks.length,1);assert.ok(kicks[0].at<=.4,'the bot releases promptly with the faster charge ramp');
+    assert.ok(power>=18&&power<=24);
+    assert.ok(kicks[0].power>=power&&kicks[0].power<=power+2+1e-8,'one simulation step can add at most two charge points');
     assert.ok(Math.abs(kicks[0].x-(bot.team?70:1130))>430,'the bot shoots well outside keeper range');
   }
 });
@@ -320,7 +321,7 @@ test('movement normalizes diagonal speed and possession slows movement by 20 per
   near(carrying.state.players[0].x - start.x, 194 * .8*MOTION_PACE);
 });
 
-test('F tap kicks at five power, charging adds 12.5 per second, cursor controls direction', () => {
+test('tap shots retain five power while held shots reach full power in about one second', () => {
   const game = match();
   const player = game.state.players[0];
   game.setOwner(player);
@@ -334,19 +335,19 @@ test('F tap kicks at five power, charging adds 12.5 per second, cursor controls 
   game.setOwner(player);
   game.setInput(0, { shootHeld: true });
   game.update(.01);
-  advance(game, 2);
-  near(player.charge, 30);
+  advance(game, .5);
+  near(player.charge, 55);
   game.setInput(0, { shootHeld: false, shootRelease: true });
   game.update(.01);
-  near(game.state.ball.power, 30);
+  near(game.state.ball.power, 55);
 });
 
-test('a maximum charged kick automatically fires after four seconds with airtime', () => {
+test('a maximum charged kick automatically fires a quarter-second after reaching full power', () => {
   const game = match();
   game.setOwner(game.state.players[0]);
   game.setInput(0, { shootHeld: true });
   game.update(.01);
-  advance(game, 11.65);
+  advance(game, 1.215);
   assert.equal(game.state.ball.owner, null);
   assert.equal(game.state.ball.power, 100);
   assert.ok(game.state.ball.z > 0);
@@ -426,13 +427,13 @@ test('grounded low-power shots can cross the goal mouth; side walls bounce elsew
   assert.ok(wall.state.ball.x <= 1130);
 });
 
-test('goal celebrates five seconds, replays available buildup, then protects conceded kickoff', () => {
+test('goal celebrates, replays only the final moments, then protects conceded kickoff', () => {
   const game = match();
   advance(game, 8);
   game.state.ball.lastTouch = 0;
   game.goal(0);
   assert.equal(game.state.players[0].stats.goals, 1);
-  assert.ok(game.goalReplay.length>90);
+  assert.equal(game.goalReplay.length,2);
   const time = game.state.time;
   advance(game, 4.99);
   assert.equal(game.state.phase, 'celebrate');
@@ -611,7 +612,7 @@ test('both players expose actual charge and brief shot power, including online s
     const game=match(),p=game.state.players[team];game.setOwner(p);
     const x=p.x;game.setInput(team,{shootHeld:true,keys:{d:true}});game.update(.01);advance(game,.4);
     assert.ok(p.x>x,'players can move and charge together');
-    near(game.shotMeter(p).power,10);assert.equal(game.shotMeter(p).label,'POWER');
+    near(game.shotMeter(p).power,45);assert.equal(game.shotMeter(p).label,'POWER');
     game.setInput(team,{shootHeld:false,shootRelease:true,keys:{}});game.update(.01);
     assert.equal(game.shotMeter(p).label,'SHOT');near(game.shotMeter(p).power,game.state.ball.power);
     const guest=new Game(null,{mode:'guest',localTeam:1-team});guest.importState(game.exportState());
@@ -699,7 +700,7 @@ test('every actual ability kick advances Ultra, invalid attempts do not, and ear
 });
 
 test('maximum-hold explicit Ultra spends its charge once and preserves the result online and in replay',()=>{
-  const game=match(),p=game.state.players[0];game.setOwner(p);Object.assign(p,{shotsTaken:3,ultraCharge:3,charging:true,chargingUltra:true,charge:100,maxHold:3.99});
+  const game=match(),p=game.state.players[0];game.setOwner(p);Object.assign(p,{shotsTaken:3,ultraCharge:3,charging:true,chargingUltra:true,charge:100,maxHold:.24});
   game.setInput(0,{shootHeld:true,ultraShot:true});withRandom(()=>.25,()=>game.update(.02));
   assert.equal(p.shotsTaken,4);assert.equal(p.ultraCharge,0);assert.equal(p.shotType,'curve');assert.equal(game.state.ball.power,100);
   game.setInput(0,{shootHeld:false,shootRelease:true,ultraShot:true});game.update(.01);assert.equal(p.shotsTaken,4);
@@ -817,11 +818,11 @@ test('the original pitch dimensions stay fixed while running is fifteen percent 
   assert.deepEqual(game.state.keepers.map(k=>k.x),[98,1102]);
 });
 
-test('the replay retains only the last ten seconds and only the scorer can skip it',()=>{
+test('an untracked synthetic goal has a minimal replay and only the scorer can skip it',()=>{
   const game=match();advance(game,14);const time=game.state.time;game.state.ball.lastTouch=0;game.goal(0);
-  assert.ok(game.goalReplay.length>=120&&game.goalReplay.length<=127);
-  assert.ok(game.goalReplay[0].at>=game.state.elapsed-10);
-  assert.ok(game.goalReplay.at(-1).at-game.goalReplay[0].at<=10);
+  assert.equal(game.goalReplay.length,2);
+  assert.ok(game.goalReplay[0].at>=game.state.elapsed-.1);
+  assert.ok(game.goalReplay.at(-1).at-game.goalReplay[0].at<=3);
   assert.equal(game.state.scorerTeam,0);assert.equal(game.skipReplay(1),false);
   assert.equal(game.state.phase,'celebrate');assert.equal(game.skipReplay(0),true);
   assert.equal(game.state.phase,'play');assert.equal(game.state.kickoff.team,1);near(game.state.time,time);

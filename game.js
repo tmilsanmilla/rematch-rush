@@ -8,6 +8,7 @@ const MAX_CANVAS_PIXELS=1600000,MAX_CANVAS_SIDE=2560,MAX_EFFECTS=48;
 // Gameplay timers use real seconds; only world-space travel uses this pace.
 export const MOTION_PACE=.85;
 export const ACTION_COOLDOWNS=Object.freeze({dribble:1.7,tackle:2});
+export const SHOT_CHARGE=Object.freeze({perSecond:100,maxHold:.25});
 export function fitViewport(width,height){if(!(Number.isFinite(width)&&Number.isFinite(height)&&width>0&&height>0))return {scale:0,x:0,y:0,width:0,height:0};const scale=Math.max(0,Math.min(width/WORLD.width,height/WORLD.height));return {scale,x:(width-WORLD.width*scale)/2,y:(height-WORLD.height*scale)/2,width:WORLD.width*scale,height:WORLD.height*scale};}
 export function canvasResolution(width,height,dpr=1){
  if(!(Number.isFinite(width)&&Number.isFinite(height)&&width>0&&height>0))return {width:0,height:0,scale:0};
@@ -15,14 +16,18 @@ export function canvasResolution(width,height,dpr=1){
  return {width:Math.max(1,Math.floor(width*scale)),height:Math.max(1,Math.floor(height*scale)),scale};
 }
 export function finishingChance({distance,power=0,ownGoal=false,shotType='normal',finishBoost=0}){
- const ultra=shotType==='curve'||shotType==='quick',boost=Math.max(0,finishBoost),powerBonus=clamp(power,0,100)*.001;
- if(ownGoal)return Math.min(.015,.006+(ultra?.006:0)+boost*.02);
- const farChance=Math.min(.045,(ultra?.04:.025)+boost*.02);
- if(distance>=750)return farChance*Math.exp(-(distance-750)/500);
- if(distance>550){const middle=.29+powerBonus+(ultra?.18:0)+boost;return middle+(farChance-middle)*(distance-550)/200;}
- const base=distance<=250?.66-distance*.0004:.56-(distance-250)*.0009;
- return clamp(base+powerBonus+(ultra?.18:0)+boost,.01,ultra||boost>0?.90:.80);
+ const ultra=shotType==='curve'||shotType==='quick',boost=clamp(finishBoost,0,.08),powerBonus=clamp(power,0,100)*.0004;
+ if(ownGoal)return Math.min(.015,.004+(ultra?.006:0)+boost*.02);
+ const near=.76+powerBonus+(ultra?.14:0)+boost,middle=.38+powerBonus+(ultra?.14:0)+boost;
+ const half=.10+powerBonus*.25+(ultra?.07:0)+boost*.1,far=.018+(ultra?.012:0)+boost*.01;
+ if(distance>=750)return far*Math.exp(-(distance-750)/400);
+ if(distance>550)return half+(far-half)*(distance-550)/200;
+ if(distance>400)return middle+(half-middle)*(distance-400)/150;
+ if(distance>250)return Math.min(.96,near)+(middle-Math.min(.96,near))*(distance-250)/150;
+ return clamp(.88-Math.max(0,distance)*.00048+powerBonus+(ultra?.14:0)+boost,.01,.96);
 }
+function keeperReactionDelay(ball){return .11+clamp(ball.savePower||ball.power||0,0,100)*.0005+(ball.shotType==='quick'?.02:0);}
+
 function shotDispersion(distance,roll,shotType,accuracy){
  // The same release roll sets both placement and finishing; flight never rerolls.
  const ultra=shotType==='curve'||shotType==='quick',range=clamp(distance/WORLD.width,0,1);
@@ -61,7 +66,7 @@ export class Game {
  sendLocal(edge={}){const input={...this.localInput,keys:{...this.localInput.keys},...edge};this.aimDirty=false;if(this.options.mode!=='guest')this.setInput(this.localPlayerId,input);this.options.onInput?.(input);return input;}
  queueAim(aim){this.localInput.aim=aim;this.inputs[this.localPlayerId].aim=aim;this.aimDirty=true;}
  flushAimInput(now=performance.now()){if(!this.aimDirty||now-(this.lastAimSentAt??-Infinity)<1000/30)return false;this.sendLocal();this.lastAimSentAt=now;return true;}
- suspendControls(){this.mouseShotActive=false;this.localInput.keys={};this.localInput.shootHeld=false;this.localInput.ultraShot=false;const p=this.localPlayer();if(p){p.charging=false;p.chargingUltra=false;p.charge=0;p.maxHold=0;}this.sendLocal({cancelShot:true});}
+ suspendControls({unlock=true}={}){if(unlock)this.unlockCursor();this.controlLockTap=false;this.mouseShotActive=false;this.localInput.keys={};this.localInput.shootHeld=false;this.localInput.ultraShot=false;const p=this.localPlayer();if(p){p.charging=false;p.chargingUltra=false;p.charge=0;p.maxHold=0;}this.sendLocal({cancelShot:true});}
  startShot(){if(this.state.phase!=='play'||this.localInput.shootHeld)return false;this.localInput.ultraShot=false;this.localInput.shootHeld=true;this.sendLocal();return true;}
  ultraReady(p=this.localPlayer()){return (p?.ultraCharge||0)>=3;}
  startUltrashot(){const p=this.localPlayer();if(this.state.phase!=='play'||this.localInput.shootHeld)return false;if(!this.ultraReady(p)){this.notify('Kick the ball three times to charge Ultrashot.');return false;}if(!this.hasBall(p)){this.notify('Get possession to use Ultrashot.');return false;}this.localInput.ultraShot=true;this.localInput.shootHeld=true;this.sendLocal();return true;}
@@ -73,13 +78,33 @@ export class Game {
  useAwakening(){return this.command('awaken');}
  skipReplay(playerId=this.localPlayerId){const s=this.state,p=s.players.find(p=>p.id===playerId);if((s.phase!=='celebrate'&&s.phase!=='replay')||!p||p.id!==s.scorer)return false;if(this.options.mode==='guest'){this.sendLocal({skipReplay:true});return true;}if(s.scoreLimit&&s.score.some(score=>score>=s.scoreLimit))this.endMatch();else this.resetKickoff(s.conceded);this.options.onEvent?.({type:'replay-skipped',team:p.team,playerId});return true;}
  command(type,value){const s=this.state,p=this.localPlayer();if(type==='skill'){const skills=getSkills(p,p.awakened,this.hasBall(p));if(!skills.length){this.notify('Characterless has no character abilities. Spin and equip a character in Characters.');return false;}if(!Number.isInteger(value)||!skills[value-1]){this.notify('That move is not available. Check your character’s ability bar.');return false;}}if(s.phase!=='play'){this.notify('Abilities resume when the ball is back in play.');return false;}if(s.kickoff&&s.kickoff.team!==p.team){this.notify('Opponent kickoff protection — wait for possession or the countdown.');return false;}if(p.stun>0||p.recovery>0){this.notify(p.stun>0?'You are stunned. Try again when you recover.':'Finish the current move, then use your next ability.');return false;}this.sendLocal(type==='skill'?{skill:value}:{[type]:true});return true;}
+ isCursorLocked(){return !!this.canvas&&this.canvas.ownerDocument?.pointerLockElement===this.canvas;}
+ requestCursorLock(){
+  if(this.isCursorLocked())return true;
+  if(this.state.phase==='ended'||!this.canvas?.requestPointerLock){this.notify('Cursor lock is unavailable here. Normal mouse aiming still works.');return false;}
+  if(this.cursorLockPending)return true;
+  const doc=this.canvas.ownerDocument;this.cursorLockWanted=true;this.cursorLockPending=true;
+  const cleanup=()=>{doc?.removeEventListener('pointerlockchange',finish);doc?.removeEventListener('pointerlockerror',fail);};
+  const finish=()=>{cleanup();this.cursorLockPending=false;if(this.isCursorLocked()&&!this.cursorLockWanted)this.unlockCursor();};
+  const fail=()=>{const report=this.cursorLockWanted;finish();this.cursorLockWanted=false;if(report)this.notify('Cursor lock was blocked. Try the Lock cursor button, or keep normal mouse aiming.');this.options.onCursorLockChange?.(false);};
+  doc?.addEventListener('pointerlockchange',finish,{once:true});doc?.addEventListener('pointerlockerror',fail,{once:true});
+  try{const result=this.canvas.requestPointerLock();result?.then?.(finish,fail);return true;}catch{fail();return false;}
+ }
+ unlockCursor(){this.cursorLockWanted=false;if(!this.isCursorLocked())return false;try{this.canvas.ownerDocument.exitPointerLock?.();return true;}catch{this.notify('Press Escape to release the cursor.');return false;}}
+ toggleCursorLock(){return this.isCursorLocked()?this.unlockCursor():this.requestCursorLock();}
+
  bind(){if(typeof window==='undefined'||!this.canvas)return;const listen=(el,key,fn)=>{el.addEventListener(key,fn);this.handlers.push([el,key,fn]);};
   const editable=e=>/INPUT|TEXTAREA|SELECT/.test(e.target?.tagName)||e.target?.isContentEditable;
   const keyOf=e=>({KeyW:'w',KeyA:'a',KeyS:'s',KeyD:'d',KeyF:'f',KeyC:'c',KeyE:'e',KeyQ:'q',Digit1:'1',Digit2:'2',Digit3:'3',Digit4:'4',Digit5:'5',Numpad1:'1',Numpad2:'2',Numpad3:'3',Numpad4:'4',Numpad5:'5',ArrowUp:'w',ArrowLeft:'a',ArrowDown:'s',ArrowRight:'d'}[e.code]||({arrowup:'w',arrowleft:'a',arrowdown:'s',arrowright:'d'}[(e.key||'').toLowerCase()])||e.key||'').toLowerCase();
-  listen(window,'keydown',e=>{if(e.metaKey||e.ctrlKey||e.altKey||editable(e))return;const key=keyOf(e);if(['w','a','s','d','f','c','e','q','1','2','3','4','5',' '].includes(key))e.preventDefault();if('wasd'.includes(key)&&key.length===1){this.localInput.keys[key]=true;this.sendLocal();}if(e.repeat)return;if(key==='f')this.startUltrashot();if(key==='c')this.useAction();if(key==='e')this.useAwakening();if(key==='q')this.usePass();if(/^[1-5]$/.test(key))this.useSkill(+key);});
-  listen(window,'keyup',e=>{const key=keyOf(e);if('wasd'.includes(key)&&key.length===1&&this.localInput.keys[key]){this.localInput.keys[key]=false;this.sendLocal();}if(key==='f')this.releaseUltrashot();});
+  listen(window,'keydown',e=>{if(editable(e))return;if((e.code==='ControlLeft'||e.code==='ControlRight'||e.key==='Control')&&!e.metaKey&&!e.altKey){if(!e.repeat)this.controlLockTap=true;return;}this.controlLockTap=false;if(e.metaKey||e.ctrlKey||e.altKey)return;const key=keyOf(e);if(['w','a','s','d','f','c','e','q','1','2','3','4','5',' '].includes(key))e.preventDefault();if('wasd'.includes(key)&&key.length===1){this.localInput.keys[key]=true;this.sendLocal();}if(e.repeat)return;if(key==='f')this.startUltrashot();if(key==='c')this.useAction();if(key==='e')this.useAwakening();if(key==='q')this.usePass();if(/^[1-5]$/.test(key))this.useSkill(+key);});
+  listen(window,'keyup',e=>{if(e.code==='ControlLeft'||e.code==='ControlRight'||e.key==='Control'){const toggle=this.controlLockTap;this.controlLockTap=false;if(toggle&&!editable(e)&&!e.metaKey&&!e.altKey){e.preventDefault();this.toggleCursorLock();}return;}const key=keyOf(e);if('wasd'.includes(key)&&key.length===1&&this.localInput.keys[key]){this.localInput.keys[key]=false;this.sendLocal();}if(key==='f')this.releaseUltrashot();});
   listen(window,'blur',()=>this.suspendControls());
-  const aim=(event,refresh=false)=>{if(Number.isFinite(event.clientX)&&Number.isFinite(event.clientY))this.queueAim(this.pointerToPitch(event.clientX,event.clientY,refresh));};
+  const doc=this.canvas.ownerDocument;
+  if(doc){
+   listen(doc,'pointerlockchange',()=>{const locked=this.isCursorLocked();this.cursorLockPending=false;if(!locked)this.cursorLockWanted=false;this.suspendControls({unlock:false});this.options.onCursorLockChange?.(locked);});
+   listen(doc,'mousemove',e=>{if(!this.isCursorLocked())return;const r=this.canvasMetrics(),scale=fitViewport(r.width,r.height).scale;if(!scale)return;const dx=Number.isFinite(e.movementX)?e.movementX:0,dy=Number.isFinite(e.movementY)?e.movementY:0;this.queueAim({x:clamp(this.localInput.aim.x+dx/scale,0,WORLD.width),y:clamp(this.localInput.aim.y+dy/scale,0,WORLD.height)});});
+  }
+  const aim=(event,refresh=false)=>{if(!this.isCursorLocked()&&Number.isFinite(event.clientX)&&Number.isFinite(event.clientY))this.queueAim(this.pointerToPitch(event.clientX,event.clientY,refresh));};
   listen(this.canvas,'pointermove',e=>aim(e));
   listen(window,'pointermove',e=>{if(this.mouseShotActive&&e.pointerType==='mouse')aim(e);});
   listen(this.canvas,'pointerdown',e=>{if(e.pointerType==='mouse'&&e.button===0){aim(e,true);this.mouseShotActive=this.startShot();}});
@@ -123,7 +148,12 @@ export class Game {
  clearBall(p,power){this.setOwner(p);return this.kick(p,power,{color:p.aura});}
  action(p){if(p.stun>0||p.recovery>0||p.motion)return;if(this.hasBall(p)){if(p.dribbleCd>0)return;const a=p.ability||{},duration=.5+(p.character==='butterflydancer'?.5:0)+(p.dribbleDurationBonus||0)+(p.character==='emperor'&&a.emperorChemistry?.35:0);p.dribble=duration;p.dribbleCd=a.infiniteDribble>0?0:ACTION_COOLDOWNS.dribble-(p.character==='butterflydancer'?.5:0);p.afterDribble=true;this.dash(p,Math.cos(p.angle),Math.sin(p.angle),78,duration,{dribble:true,feint:true,duration,sway:0,color:COLORS[p.team]});this.effect('dribble',p.x,p.y,COLORS[p.team],duration);}else{if(p.slideCd>0)return;p.slideCd=ACTION_COOLDOWNS.tackle;this.dash(p,Math.cos(p.angle),Math.sin(p.angle),105,.28,{steal:true,stun:1,color:COLORS[p.team]});}}
  resetKickoff(team,initial=false){this.botShot=null;this.botBrains={};const s=this.state;s.phase='play';s.phaseTime=0;s.cutscene=null;s.kickoff={team,left:5};for(const p of s.players){if(p.isBot){this.inputs[p.id].shootHeld=false;this.pending[p.id]=[];}const allies=s.players.filter(q=>q.team===p.team),lane=allies.findIndex(q=>q.id===p.id);p.x=p.team===0?(team===0?550:385):(team===1?650:815);p.y=allies.length>1?MID.y+(lane===0?-100:100):MID.y;p.possessionAge=0;p.receivedAt=p.possessionStartedAt=null;p.angle=p.team?Math.PI:0;p.stun=p.recovery=p.dribble=0;p.afterDribble=false;p.motion=null;p.charging=false;p.chargingUltra=false;p.charge=0;p.shotPowerLeft=0;p.shotWindup=null;}Object.assign(s.ball,{x:MID.x,y:MID.y,vx:0,vy:0,vz:0,z:0,owner:null,perfectPass:null,pass:null,passTarget:null,reaction:null,magnusFlight:false,distribution:null,unstoppableAir:false,noFrictionFor:0,topspin:false,cannotScore:false,scriptedGoal:null,scriptedReturn:false,power:0,curve:0,knuckle:false,finish:null,shotType:'normal',pickupDelay:0});for(const k of s.keepers){k.x=k.team?1102:98;k.y=MID.y;k.holding=0;}this.history=[];this.shotReplay=[];this.shotStartedAt=null;this.tasks=[];this.notify(`${team===this.localTeam?'Your':'Rival'} kickoff · five-second protection`);if(!initial)this.options.onEvent?.({type:'kickoff',team});}
- goal(team){const s=this.state;if(s.phase!=='play')return;s.score[team]++;const last=s.players.find(p=>p.id===s.ball.lastTouch),scorer=last?.team===team?last:s.players.find(p=>p.team===team);scorer.stats.goals++;s.scorer=scorer.id;s.scorerTeam=team;s.phase='celebrate';s.phaseTime=5;s.conceded=1-team;s.keepers[1-team].saveStreak=0;s.kickoff=null;this.goalReplay=this.history.filter(frame=>frame.at>=s.elapsed-10).slice();this.goalReplay.push(this.captureFrame());const duration=this.goalReplay.at(-1).at-this.goalReplay[0].at;s.replayDuration=Math.max(1,Math.min(10,duration));this.replayExported=false;this.tasks=[];this.effect('goal',s.ball.x,s.ball.y,COLORS[team],3);this.options.onEvent?.({type:'goal',team,scorer:scorer.name});}
+ goal(team){const s=this.state;if(s.phase!=='play')return;s.score[team]++;const last=s.players.find(p=>p.id===s.ball.lastTouch),scorer=last?.team===team?last:s.players.find(p=>p.team===team);scorer.stats.goals++;s.scorer=scorer.id;s.scorerTeam=team;s.phase='celebrate';s.phaseTime=5;s.conceded=1-team;s.keepers[1-team].saveStreak=0;s.kickoff=null;
+  const final=this.captureFrame(),shot=this.shotStartedAt!==null?this.shotReplay.filter(frame=>frame.at>=this.shotStartedAt):[];
+  this.goalReplay=shot.length?shot.slice():[this.history.at(-1)||final];this.goalReplay.push(final);
+  const duration=final.at-this.goalReplay[0].at;s.replayDuration=clamp(duration,.45,3);this.replayExported=false;this.tasks=[];this.effect('goal',s.ball.x,s.ball.y,COLORS[team],3);this.options.onEvent?.({type:'goal',team,scorer:scorer.name});
+ }
+
  endMatch(){if(this.state.phase==='ended')return;this.state.phase='ended';this.options.onEnd?.({score:this.state.score,players:this.state.players});this.options.onEvent?.({type:'end'});}
  update(dt){const s=this.state;for(const p of s.players){this.inputs[p.id]||={keys:{},aim:p.aim||{x:p.team?FIELD.left:FIELD.right,y:MID.y},shootHeld:false};this.pending[p.id]||=[];}if(s.awakeningNotice){s.awakeningNotice.left=Math.max(0,s.awakeningNotice.left-dt);if(s.awakeningNotice.left===0)s.awakeningNotice=null;}this.noticeTime-=dt;if(this.noticeTime<=0)s.message='';for(const f of this.effects)f.left-=dt;this.effects=this.effects.filter(f=>f.left>0);
   for(const p of s.players){p.shotPowerLeft=Math.max(0,(p.shotPowerLeft||0)-dt);if(p.shotWindup){if(!this.hasBall(p)&&!p.shotWindup.allowOffBall||p.stun>0)p.shotWindup=null;else if(s.phase==='play'||s.phase==='cutscene'&&p.shotWindup.cinematic)p.shotWindup.left=Math.max(0,p.shotWindup.left-dt);}}
@@ -144,7 +174,7 @@ export class Game {
    if(p.stun>0||p.recovery>0||locked){if(this.pending[p.id].some(([kind])=>kind==='skill'||kind==='awaken'))this.notify(locked?'Opponent kickoff protection — wait for possession or the countdown.':p.stun>0?'You are stunned. Try again when you recover.':'Finish the current move, then use your next ability.');p.charging=false;p.charge=0;this.pending[p.id]=[];continue;}
    for(const [action,slot] of this.pending[p.id]){if(s.phase!=='play')break;if(action==='action')this.action(p);if(action==='pass')this.pass(p);if(action==='skill'){if(getSkills(p,p.awakened,this.hasBall(p)).length)this.activateMeteredSkill(p,slot-1);else this.notify('Characterless has no character abilities. Spin and equip a character in Characters.');}if(action==='awaken')activateAwakening(this,p);if(action==='shoot'&&this.hasBall(p))this.kick(p,Math.max(5,p.charge),{air:p.charge>=100,manual:true,ultraShot:slot===true});}this.pending[p.id]=[];
    if(s.phase!=='play')return;
-   if(input.shootHeld&&this.hasBall(p)&&(!input.ultraShot||this.ultraReady(p))){if(!p.charging){p.charging=true;p.chargingUltra=!!input.ultraShot;p.charge=5;p.maxHold=0;}else{p.charge=Math.min(100,p.charge+dt*12.5);if(p.charge>=100){p.maxHold+=dt;if(p.maxHold>=4)this.kick(p,100,{air:true,manual:true,ultraShot:!!input.ultraShot});}}}else if(!this.hasBall(p)||input.ultraShot&&!this.ultraReady(p)){p.charging=false;p.chargingUltra=false;p.charge=0;}
+   if(input.shootHeld&&this.hasBall(p)&&(!input.ultraShot||this.ultraReady(p))){if(!p.charging){p.charging=true;p.chargingUltra=!!input.ultraShot;p.charge=5;p.maxHold=0;}else{p.charge=Math.min(100,p.charge+dt*SHOT_CHARGE.perSecond);if(p.charge>=100){p.maxHold+=dt;if(p.maxHold>=SHOT_CHARGE.maxHold)this.kick(p,100,{air:true,manual:true,ultraShot:!!input.ultraShot});}}}else if(!this.hasBall(p)||input.ultraShot&&!this.ultraReady(p)){p.charging=false;p.chargingUltra=false;p.charge=0;}
    let dx=(input.keys?.d?1:0)-(input.keys?.a?1:0),dy=(input.keys?.s?1:0)-(input.keys?.w?1:0),distance=0;
    if(p.motion){const m=p.motion,motionDt=Math.min(this.motionSeconds(dt),Math.max(0,m.left));m.left-=motionDt;distance=m.speed*motionDt;dx=m.dx;dy=m.dy;p.x+=dx*distance;p.y+=dy*distance;if(m.feint){const progress=clamp(1-m.left/m.duration,0,1),sway=Math.sin(progress*TAU)*26,shift=sway-(m.sway||0);p.x-=m.dy*shift;p.y+=m.dx*shift;m.sway=sway;}if(m.steal){const enemy=this.opponent(p);if(this.hasBall(enemy)&&this.distance(p,enemy)<42){const ok=this.steal(p,enemy,m.stun||1);if(m.knockback){const target=ok?enemy:p;target.x+=dx*125;target.y+=dy*125;}}if(s.ball.owner===null&&!s.ball.magnusFlight&&!s.ball.perfectPass&&!s.ball.scriptedGoal&&s.ball.z===0&&this.distance(p,s.ball)<40)this.setOwner(p);}if(m.left<=0)p.motion=null;
    }else if(dx||dy){const n=Math.hypot(dx,dy);dx/=n;dy/=n;let speed=194*(1+(p.character==='supersonic'?.5:0)+(p.abilitySpeedBoost||0)+(p.speedBoost||0)+(p.character==='butterflydancer'&&p.ability?.ankleBoostLeft>0?.2:0))*(this.hasBall(p)?.8:1);distance=speed*this.motionSeconds(dt);p.x+=dx*distance;p.y+=dy*distance;p.angle=Math.atan2(dy,dx);}
@@ -175,7 +205,20 @@ export class Game {
 
  updateBot(dt){for(const p of this.state.players.filter(p=>p.isBot))this.updateBotPlayer(p,dt);}
  updateBotPlayer(p,dt){return updateBotBrain(this,p,dt);}
- updateKeepers(dt){const s=this.state,b=s.ball;for(const k of s.keepers){k.dive=Math.max(0,k.dive-dt);k.diveCd=Math.max(0,(k.diveCd||0)-dt);if(b.perfectPass||b.scriptedGoal||b.scriptedReturn)continue;if(b.owner===k.id){k.holding-=dt;if(k.holding<=0){const mates=s.players.filter(p=>p.team===k.team),mate=mates.slice().sort((a,bp)=>this.distance(k,a)-this.distance(k,bp))[0];if(!mate)continue;const dx=mate.x-k.x,dy=mate.y-k.y,n=Math.hypot(dx,dy)||1,power=clamp(n/10,15,65);Object.assign(b,{owner:null,x:k.x,y:k.y,vx:dx/n*(170+power*8.7),vy:dy/n*(170+power*8.7),z:12,vz:235,power,savePower:power,curve:0,knuckle:false,lastTouch:mate.id,lastKickTeam:k.team,lastKickAgo:0,pickupDelay:.35,shotType:'normal',finish:null,color:COLORS[k.team],distribution:{team:k.team,keeperId:k.id,age:0,landedAge:null},pass:null,passTarget:null,unstoppableAir:false,noFrictionFor:0,topspin:false,hadAirtime:true});this.prepareShot(mate,power,{origin:k,source:'distribution'});this.notify(`${k.team===this.localTeam?'Your':'Rival'} keeper distributes`);}continue;}
+ distributeKeeper(k){
+  const teammates=this.state.players.filter(p=>p.team===k.team),humans=teammates.filter(p=>!p.isBot),pool=humans.length?humans:teammates;
+  const mate=pool.slice().sort((a,b)=>(this.distance(k,a)+(a.id===k.lastReceiverId?WORLD.width*2:0))-(this.distance(k,b)+(b.id===k.lastReceiverId?WORLD.width*2:0)))[0];
+  if(!mate)return false;
+  const keys=this.inputs[mate.id]?.keys||{},dx=(keys.d?1:0)-(keys.a?1:0),dy=(keys.s?1:0)-(keys.w?1:0),n=Math.hypot(dx,dy)||1;
+  const speed=194*(1+(mate.character==='supersonic'?.5:0)+(mate.abilitySpeedBoost||0)+(mate.speedBoost||0)),velocity={x:dx/n*speed,y:dy/n*speed};
+  let flight=clamp(this.distance(k,mate)/720,.4,1.5),target;
+  for(let i=0;i<3;i++){target={x:clamp(mate.x+velocity.x*flight,FIELD.left+25,FIELD.right-25),y:clamp(mate.y+velocity.y*flight,FIELD.top+25,FIELD.bottom-25)};flight=clamp(this.distance(k,target)/720,.4,1.5);}
+  const power=clamp(this.distance(k,target)/10,15,65),b=this.state.ball;
+  Object.assign(b,{owner:null,x:k.x,y:k.y,vx:(target.x-k.x)/flight,vy:(target.y-k.y)/flight,z:12,vz:220*flight-12/flight,power,savePower:power,curve:0,knuckle:false,lastTouch:k.id,lastKickTeam:k.team,lastKickAgo:0,pickupDelay:.12,shotType:'normal',finish:null,color:COLORS[k.team],distribution:{team:k.team,keeperId:k.id,targetId:mate.id,target,flight,age:0,landedAge:null},pass:{fromId:k.id,targetId:mate.id,team:k.team},passTarget:mate.id,unstoppableAir:false,noFrictionFor:flight+.08,topspin:false,hadAirtime:true,cannotScore:true});
+  k.lastReceiverId=mate.id;this.prepareShot(mate,power,{origin:k,source:'distribution'});this.notify(`${k.team===0?'Blue':'Red'} keeper → ${mate.name}`);this.options.onEvent?.({type:'keeper-distribution',team:k.team,targetId:mate.id});return true;
+ }
+
+ updateKeepers(dt){const s=this.state,b=s.ball;for(const k of s.keepers){k.dive=Math.max(0,k.dive-dt);k.diveCd=Math.max(0,(k.diveCd||0)-dt);if(b.perfectPass||b.scriptedGoal||b.scriptedReturn)continue;if(b.owner===k.id){k.holding-=dt;if(k.holding<=0)this.distributeKeeper(k);continue;}
    const enemy=s.players.find(p=>p.team!==k.team&&this.hasBall(p)),close=enemy&&(k.team===0?enemy.x<230:enemy.x>970)&&enemy.y>220&&enemy.y<480;
    let tx=k.team?1102:98,ty=clamp(b.y,265,435);if(close){tx=enemy.x+(k.team?15:-15);ty=enemy.y;}
    const incoming=b.owner===null&&(k.team===0?b.vx<0:b.vx>0);
@@ -191,7 +234,7 @@ export class Game {
    if((b.x<FIELD.left||b.x>FIELD.right)&&b.y>FIELD.goalTop+6&&b.y<FIELD.goalBottom-6&&b.z<100&&!b.cannotScore){const defendingTeam=b.x>FIELD.right?1:0;if(b.finish&&b.finish.roll>=b.finish.chances[defendingTeam]){const keeper=s.keepers[defendingTeam];this.effect('dive',keeper.x,keeper.y,COLORS[defendingTeam],.4);keeper.x=defendingTeam?1122:78;keeper.y=clamp(b.y,FIELD.goalTop+6,FIELD.goalBottom-6);keeper.dive=.4;keeper.diveCd=1.5;b.x=keeper.x;b.y=keeper.y;this.keeperCatch(keeper);return;}this.goal(1-defendingTeam);return;}
    const openGoal=!b.cannotScore&&b.y>FIELD.goalTop+6&&b.y<FIELD.goalBottom-6&&b.z<100;
    if(!openGoal&&b.x<FIELD.left+7){b.x=FIELD.left+7;b.vx=Math.abs(b.vx)*.84;}if(!openGoal&&b.x>FIELD.right-7){b.x=FIELD.right-7;b.vx=-Math.abs(b.vx)*.84;}
-   for(const k of s.keepers){if(b.scriptedReturn)continue;if(b.lastKickTeam===k.team&&(k.team?b.vx<=0:b.vx>=0))continue;const power=b.savePower||b.power,reach=(k.dive>0?32:23)-power*.065;if(this.distance(k,b)<reach&&b.z<(b.topspin?105:k.dive>0?95:38)&&k.holding<=0){this.keeperCatch(k);return;}}
+   for(const k of s.keepers){if(b.scriptedReturn)continue;if(b.lastKickTeam===k.team&&(k.team?b.vx<=0:b.vx>=0))continue;const power=b.savePower||b.power,reach=(k.dive>0?32:23)-power*.065;if((!b.finish||b.finish.roll>=b.finish.chances[k.team]||b.lastKickAgo>=keeperReactionDelay(b))&&this.distance(k,b)<reach&&b.z<(b.topspin?105:k.dive>0?95:38)&&k.holding<=0){this.keeperCatch(k);return;}}
   }
   const friction=b.noFrictionFor>0?1:Math.exp(-(b.z>0?.08:.42)*motionDt);b.vx*=friction;b.vy*=friction;if(Math.hypot(b.vx,b.vy)<7){b.vx=b.vy=0;}if(b.z>10)this.effect('air',b.x,b.y,b.color||'#f9e8a1',.18);
  }
@@ -247,6 +290,7 @@ export class Game {
   const s=this.state,view=s.phase==='replay'&&this.goalReplay.length?this.replayView():s.phase==='cutscene'?this.cutsceneView():s;
   c.save();if(s.phase==='celebrate'){const p=s.players.find(p=>p.id===s.scorer)||s.players[0],z=1.35+Math.sin((5-s.phaseTime)*.8)*.1;c.translate(MID.x,MID.y);c.scale(z,z);c.translate(-p.x,-p.y);}else if(s.phase==='cutscene'&&s.cutscene?.choreography?.kind==='magnus-freeze'){const actor=view.players.find(p=>p.id===s.cutscene.choreography.actorId);if(actor){c.translate(MID.x,MID.y);c.scale(1.9,1.9);c.translate(-actor.x,-actor.y);}}
   this.drawCachedPitch(c,viewport.scale);for(const k of view.keepers||s.keepers)this.drawPlayer(c,{...k,angle:k.team?Math.PI:0,name:'KEEPER',keeper:true,character:'none'});for(const p of view.players||s.players)this.drawPlayer(c,p);this.drawBall(c,view.ball||s.ball);
+  if(s.phase==='play'&&this.isCursorLocked()){const {x,y}=this.localInput.aim,scale=Math.max(.3,this.displayScale||1);c.save();c.strokeStyle='#ffffff';c.lineWidth=1.5/scale;c.beginPath();c.arc(x,y,7/scale,0,TAU);c.moveTo(x-11/scale,y);c.lineTo(x+11/scale,y);c.moveTo(x,y-11/scale);c.lineTo(x,y+11/scale);c.stroke();c.restore();}
   for(const e of this.effects){if(e.type==='rose'){c.save();c.translate(e.x,e.y);c.strokeStyle=e.color;c.fillStyle=e.color+'66';c.lineWidth=2;for(let petal=0;petal<5;petal++){const a=petal*TAU/5+(1-e.left/e.total);c.beginPath();c.ellipse(Math.cos(a)*12,Math.sin(a)*12,11,6,a,0,TAU);c.fill();c.stroke();}c.restore();continue;}c.globalAlpha=clamp(e.left/e.total,0,1)*.65;c.strokeStyle=e.color;c.lineWidth=e.type==='goal'?8:3;c.beginPath();c.arc(e.x,e.y,14+(1-e.left/e.total)*48,0,TAU);c.stroke();}c.globalAlpha=1;
   c.restore();
   if(s.phase==='celebrate'){c.save();const p=s.players.find(p=>p.id===s.scorer);c.fillStyle='#101b25aa';c.fillRect(0,0,1200,700);c.fillStyle='#f6f1df';c.textAlign='center';c.font='italic 900 100px Arial';c.fillText('GOOOAL!',550,330);c.fillStyle=COLORS[p?.team||0];c.fillRect(900,220,5,240);c.textAlign='left';c.font='700 27px Arial';c.fillStyle='#fff';c.fillText(p?.name||'STRIKER',925,270);c.font='14px Arial';c.fillText('PLAYER OF THE MOMENT',925,300);c.font='700 40px Arial';c.fillText(`${p?.stats.goals||0}`,925,360);c.fillText(`${p?.stats.assists||0}`,1040,360);c.font='13px Arial';c.fillText('GOALS',925,385);c.fillText('ASSISTS',1040,385);c.textAlign='center';c.font='13px Arial';c.fillText('REPLAY FOLLOWS',550,390);c.restore();}

@@ -6,7 +6,8 @@ function event(type,fields={}){const value=new Event(type,{cancelable:true});for
 function fixture(mode='online',initial={}){
  const previousWindow=globalThis.window,win=new EventTarget(),doc=new EventTarget(),canvas=new EventTarget(),sent=[];globalThis.window=win;
  let measurements=0,requests=0,rect={left:20,top:40,width:1200,height:700,...initial};
- Object.assign(canvas,{ownerDocument:doc,getContext:()=>null,getBoundingClientRect:()=>{measurements++;return {...rect};},requestPointerLock(){requests++;throw new Error('Pointer lock must never be requested.');}});
+ Object.assign(canvas,{ownerDocument:doc,getContext:()=>null,getBoundingClientRect:()=>{measurements++;return {...rect};},requestPointerLock(){requests++;doc.pointerLockElement=canvas;doc.dispatchEvent(new Event('pointerlockchange'));}});
+ doc.exitPointerLock=()=>{doc.pointerLockElement=null;doc.dispatchEvent(new Event('pointerlockchange'));};
  const game=new Game(canvas,{mode,onInput:input=>sent.push(input)});game.state.kickoff=null;game.bind();
  return {game,win,doc,canvas,sent,get measurements(){return measurements;},get requests(){return requests;},resize(value){Object.assign(rect,value);},close(){game.stop();if(previousWindow===undefined)delete globalThis.window;else globalThis.window=previousWindow;}};
 }
@@ -17,7 +18,7 @@ test('free absolute mouse aiming follows the ordinary pointer without requesting
   f.canvas.dispatchEvent(event('pointermove',{pointerType:'mouse',clientX:850,clientY:200,movementX:-999,movementY:999}));
   assert.deepEqual(f.game.localInput.aim,{x:830,y:160});
   f.doc.dispatchEvent(event('mousemove',{movementX:200,movementY:-200}));assert.deepEqual(f.game.localInput.aim,{x:830,y:160});
-  assert.equal(f.requests,0);assert.equal(f.game.requestCursorLock,undefined);assert.equal(f.game.isCursorLocked,undefined);assert.equal(f.game.unlockCursor,undefined);
+  assert.equal(f.requests,0);assert.equal(f.game.isCursorLocked(),false);
   f.game.flushAimInput(0);assert.equal(f.sent.length,1);assert.deepEqual(f.sent[0].aim,{x:830,y:160});
  }finally{f.close();}
 });
@@ -85,14 +86,61 @@ test('blur, pointer cancellation and menus cancel charge and movement without ki
  }
 });
 
-test('Control and L no longer capture the pointer, and browser shortcuts keep their normal actions',()=>{
+test('browser shortcut combinations keep their normal actions without requesting pointer lock',()=>{
  for(const key of ['l','f','w','1','+','t'])for(const modifier of ['ctrlKey','metaKey','altKey']){
   const f=fixture();try{
-   const events=[event('keydown',{key:'Control',code:'ControlLeft',ctrlKey:true}),event('keyup',{key:'Control',code:'ControlLeft'}),event('keydown',{key:'l',code:'KeyL'}),event('keyup',{key:'l',code:'KeyL'}),event('keydown',{key,[modifier]:true}),event('keyup',{key,[modifier]:true})];
+   const events=[event('keydown',{key,[modifier]:true}),event('keyup',{key,[modifier]:true})];
    for(const e of events)f.win.dispatchEvent(e);
    assert.equal(f.requests,0);assert.equal(f.game.localInput.shootHeld,false);assert.deepEqual(f.game.localInput.keys,{});assert.ok(events.every(e=>!e.defaultPrevented));
   }finally{f.close();}
  }
+});
+
+test('a physical Ctrl browser shortcut does not toggle cursor lock on modifier release',()=>{
+ const f=fixture();try{
+  f.win.dispatchEvent(event('keydown',{key:'Control',code:'ControlLeft',ctrlKey:true}));
+  f.win.dispatchEvent(event('keydown',{key:'l',code:'KeyL',ctrlKey:true}));
+  f.win.dispatchEvent(event('keyup',{key:'l',code:'KeyL',ctrlKey:true}));
+  f.win.dispatchEvent(event('keyup',{key:'Control',code:'ControlLeft'}));assert.equal(f.requests,0);
+ }finally{f.close();}
+});
+
+test('Ctrl toggles optional lock, relative aim follows aspect-fit scale, and release restores ordinary aiming',()=>{
+ const f=fixture('guest',{width:600,height:350});try{
+  const p=own(f);f.game.localInput.aim={x:600,y:350};
+  f.win.dispatchEvent(event('keydown',{key:'Control',code:'ControlLeft',ctrlKey:true}));assert.equal(f.requests,0);f.win.dispatchEvent(event('keyup',{key:'Control',code:'ControlLeft'}));assert.equal(f.requests,1);assert.equal(f.game.isCursorLocked(),true);
+  f.win.dispatchEvent(event('keydown',{key:'Control',code:'ControlLeft',ctrlKey:true,repeat:true}));assert.equal(f.requests,1);
+  f.doc.dispatchEvent(event('mousemove',{movementX:20,movementY:-10}));assert.deepEqual(f.game.localInput.aim,{x:640,y:330});
+  f.canvas.dispatchEvent(event('pointermove',{clientX:0,clientY:0,movementX:20,movementY:-10}));assert.deepEqual(f.game.localInput.aim,{x:640,y:330},'pointer and mouse events must not apply the delta twice');
+  f.doc.dispatchEvent(event('mousemove',{movementX:9999,movementY:-9999}));assert.deepEqual(f.game.localInput.aim,{x:1200,y:0});
+  f.win.dispatchEvent(event('keydown',{key:'Control',code:'ControlRight',ctrlKey:true}));f.win.dispatchEvent(event('keyup',{key:'Control',code:'ControlRight'}));assert.equal(f.game.isCursorLocked(),false);assert.equal(p.shotsTaken,0);
+  f.canvas.dispatchEvent(event('pointermove',{clientX:320,clientY:215}));assert.deepEqual(f.game.localInput.aim,{x:600,y:350});
+ }finally{f.close();}
+});
+
+test('Escape-style lock loss cancels held shots without firing or spending Ultra',()=>{
+ const f=fixture();try{
+  const p=own(f);p.ultraCharge=3;f.game.requestCursorLock();f.game.startUltrashot();f.game.update(.05);
+  f.doc.pointerLockElement=null;f.doc.dispatchEvent(new Event('pointerlockchange'));f.game.update(.01);
+  assert.equal(f.game.isCursorLocked(),false);assert.equal(f.game.localInput.shootHeld,false);assert.equal(p.shotsTaken,0);assert.equal(p.ultraCharge,3);assert.equal(f.game.hasBall(p),true);
+ }finally{f.close();}
+});
+
+test('rejected and unavailable cursor lock leave normal aiming and shooting usable',async()=>{
+ const f=fixture();try{
+  const p=own(f);f.canvas.requestPointerLock=()=>Promise.reject(new Error('Denied'));
+  assert.equal(f.game.requestCursorLock(),true);await Promise.resolve();assert.equal(f.game.cursorLockPending,false);assert.match(f.game.state.message,/blocked/);
+  f.canvas.requestPointerLock=undefined;assert.equal(f.game.requestCursorLock(),false);
+  f.canvas.dispatchEvent(event('pointerdown',{pointerType:'mouse',button:0,clientX:900,clientY:300}));f.game.update(.01);
+  f.win.dispatchEvent(event('pointerup',{pointerType:'mouse',clientX:900,clientY:300}));f.game.update(.01);assert.equal(p.shotsTaken,1);
+ }finally{f.close();}
+});
+
+test('a pending browser lock arriving after stop is released without leaving the old game captured',async()=>{
+ const f=fixture();let resolve;try{
+  f.canvas.requestPointerLock=()=>new Promise(done=>{resolve=done;});f.game.requestCursorLock();f.game.stop();
+  f.doc.pointerLockElement=f.canvas;f.doc.dispatchEvent(new Event('pointerlockchange'));resolve();await Promise.resolve();assert.equal(f.game.isCursorLocked(),false);assert.equal(f.game.cursorLockPending,false);
+ }finally{f.close();}
 });
 
 test('normal F, Q, movement and skill controls remain active while editable fields and repeat actions are ignored',()=>{
