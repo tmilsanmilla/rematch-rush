@@ -63,7 +63,7 @@ test('only the individual scorer may skip a team replay',()=>{
 
 test('Butterfly counter bonuses do not stack and Emperor power follows his current half',()=>{
  const game=match(),[dancer,enemy,emperor]=game.state.players;dancer.character='butterflydancer';emperor.character='emperor';
- game.setOwner(dancer);game.action(dancer);assert.equal(dancer.dribble,game.motionDuration(1));assert.equal(dancer.dribbleCd,1.5);
+ game.setOwner(dancer);game.action(dancer);assert.equal(dancer.dribble,game.motionDuration(1));assert.equal(dancer.dribbleCd,1.2);
  game.steal(enemy,dancer);assert.equal(dancer.ability.ankleBoostLeft,5);assert.equal(game.powerBonus(dancer),10);game.steal(enemy,dancer);assert.equal(game.powerBonus(dancer),10);
  Object.assign(emperor,{x:400,ability:{emperorChemistry:true}});assert.equal(game.powerBonus(emperor),40);emperor.x=800;assert.equal(game.powerBonus(emperor),25);
  emperor.motion=null;dancer.character='magician';game.state.ball.lastTouch=dancer.id;game.setOwner(emperor);game.action(emperor);assert.equal(emperor.dribble,game.motionDuration(.85));

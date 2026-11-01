@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Game, fitViewport, finishingChance, MOTION_PACE } from './game.js';
+import { ROSTER } from './characters.js';
 
 test('direct HUD command API activates the first ability for every equipped character', () => {
   for (const character of ['manmarker','powershooter','ninja','playmaker','streetdribbler','supersonic']) {
@@ -74,7 +75,37 @@ test('C performs a visible forward and sideways step-over while retaining posses
   advance(game,.41/MOTION_PACE);
   assert.equal(p.motion,null);
   assert.ok(p.recovery>0);
-  assert.ok(p.dribbleCd>1.3);
+  assert.ok(p.dribbleCd>1&&p.dribbleCd<1.2,'dribble recovery continues to count down during the step-over');
+});
+
+test('every character can dribble at least 0.3 seconds sooner than it can tackle', () => {
+  for (const character of ROSTER) {
+    const game=match(character.id),[carrier,attacker]=game.state.players;
+    game.setOwner(carrier);game.action(carrier);game.action(attacker);
+    near(attacker.slideCd-carrier.dribbleCd,character.id==='butterflydancer'?.8:.3);
+    near(carrier.dribbleCd,character.id==='butterflydancer'?1.2:1.7);
+    assert.equal(attacker.slideCd,2,'shorter dribble recovery must not shorten the next slide');
+  }
+});
+
+test('a repeat dribble is ready before the next slide and can counter it without losing possession', () => {
+  const game=match(),[carrier,attacker]=game.state.players;
+  Object.assign(carrier,{x:400,y:350});Object.assign(attacker,{x:850,y:350});
+  game.setOwner(carrier);game.action(carrier);game.action(attacker);
+  advance(game,1.69);
+  assert.ok(carrier.dribbleCd>0);game.action(carrier);
+  assert.equal(carrier.dribble,0,'the original cooldown still prevents an early repeat');
+  advance(game,.02);
+  assert.equal(carrier.dribbleCd,0);
+  assert.ok(attacker.slideCd>.28,'the defender recovers before the attacker can slide again');
+  game.action(carrier);assert.ok(carrier.dribble>0);
+  advance(game,.31);
+  assert.equal(attacker.slideCd,0);
+  Object.assign(attacker,{x:carrier.x+30,y:carrier.y,angle:Math.PI});
+  game.action(attacker);game.update(.01);
+  assert.equal(game.state.ball.owner,carrier.id);
+  assert.ok(attacker.stun>0,'the new dribble window must actually counter the next slide');
+  assert.equal(attacker.motion,null,'a countered slide cannot keep stealing afterward');
 });
 
 test('scoring replay includes up to ten seconds of buildup and uses the same duration for both peers', () => {
@@ -346,7 +377,7 @@ test('slide steals and stuns for one second, then an independent dribble is avai
   game.setInput(0, { action: true });
   game.update(.01);
   assert.ok(attacker.dribble > .45, 'successful slide must allow immediate dribble');
-  assert.ok(attacker.dribbleCd > 1.9);
+  assert.ok(attacker.dribbleCd > 1.6 && attacker.dribbleCd <= 1.7);
 });
 
 test('dribbling counters a slide and consumes its motion so it cannot resume stealing after stun', () => {

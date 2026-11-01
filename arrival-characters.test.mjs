@@ -240,7 +240,7 @@ for (const team of [0, 1]) {
 
 test('Butterfly ankle-break power, longer dribble and shorter cooldown do not stack', () => {
   const f = realMatch(0, 'butterflydancer'); f.g.setOwner(f.p); f.g.action(f.p);
-  assert.equal(f.p.dribble, f.g.motionDuration(1)); assert.equal(f.p.dribbleCd, 1.5);
+  assert.equal(f.p.dribble, f.g.motionDuration(1)); assert.equal(f.p.dribbleCd, 1.2);
   assert.equal(f.g.steal(f.enemy, f.p), false); assert.equal(f.p.ability.ankleBoostLeft, 5); assert.equal(f.g.powerBonus(f.p), 15);
   assert.equal(f.g.steal(f.enemy, f.p), false); assert.equal(f.p.ability.ankleBoostLeft, 5); assert.equal(f.g.powerBonus(f.p), 15);
   f.p.motion = null; f.g.setInput(f.p.id, { keys: { d: true } }); const x = f.p.x, elapsed = f.g.state.elapsed; f.advance(.1); assert(Math.abs(f.p.x - x - 194 * 1.2 * .8 * f.g.motionSeconds(f.g.state.elapsed - elapsed)) < 1e-8);

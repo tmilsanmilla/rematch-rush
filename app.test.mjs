@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { ROSTER, getSkills } from './characters.js';
 import { normalizeRoomConfig } from './online.js';
+import { ACTION_COOLDOWNS } from './game.js';
 
 function appHarness() {
   const nodes = new Map(), listeners = new Map(), intervals = new Map();
@@ -24,7 +25,7 @@ function appHarness() {
     body: { classList: { toggle() {} }, style: {} },
   };
   const context = {
-    document, ROSTER, getSkills,
+    document, ROSTER, getSkills, ACTION_COOLDOWNS,
     OnlineSession: class {
       constructor(options) { this.options = options; this.role = 'host'; this.closed = false; this.starts = 0; sessions.push(this); }
       queue(...args) { this.queued = args; return new Promise((resolve, reject) => { this.resolveQueue = resolve; this.rejectQueue = reject; }); }
@@ -88,6 +89,7 @@ test('fresh and later Characterless matches render an honest HUD without stale c
   app.updateHUD(state());
   assert.match(app.node('#ability-list').innerHTML, /No character abilities/);
   assert.match(app.node('#ability-list').innerHTML, /data-action="tackle"/);
+  assert.match(app.node('#ability-list').innerHTML, /Dribble 1\.7s · tackle 2s/);
   app.resetHUD();
   app.updateHUD(state('powershooter'));
   assert.match(app.node('#ability-list').innerHTML, /Power shot/);
