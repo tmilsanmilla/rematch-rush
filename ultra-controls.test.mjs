@@ -1,10 +1,11 @@
+import {giveBall} from './test-fixtures.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Game} from './game.js';
 
 const advance=(game,seconds)=>{for(let left=seconds;left>1e-9;left-=.01)game.update(Math.min(.01,left));};
 function game(extra={}){const value=new Game(null,{mode:'online',...extra});value.state.kickoff=null;return value;}
-function own(value,p=value.localPlayer()){value.setOwner(p);return p;}
+function own(value,p=value.localPlayer()){giveBall(value,p);return p;}
 function release(value,ultraShot=false){value.setInput(value.localPlayerId,{shootHeld:true,ultraShot});value.update(.01);value.setInput(value.localPlayerId,{shootHeld:false,shootRelease:true,ultraShot});value.update(.01);}
 function event(type,fields={}){const result=new Event(type,{cancelable:true});for(const [key,value] of Object.entries(fields))Object.defineProperty(result,key,{value});return result;}
 function browser(extra={}){
@@ -14,15 +15,14 @@ function browser(extra={}){
  return {value,win,canvas,close(){value.stop();if(before===undefined)delete globalThis.window;else globalThis.window=before;}};
 }
 
-test('only real kicks advance Ultra; passes and ability kicks count once, empty attempts do not',()=>{
+test('passes, misses and empty attempts do not charge Ultra; a genuine on-target save does once',()=>{
  const value=game({gameFormat:'standard-2v2'}),p=value.localPlayer(),mate=value.teammate(p);
  assert.equal(value.kick(p,20),false);assert.equal(value.pass(p,mate),false);assert.equal(p.ultraCharge,0);
- own(value,p);assert.equal(value.pass(p,mate),true);assert.equal(p.ultraCharge,1);assert.equal(p.shotsTaken,1);
- assert.equal(value.pass(p,mate),false);assert.equal(p.ultraCharge,1);
- own(value,p);assert.equal(value.kick(p,45,{accuracy:1}),true);assert.equal(p.ultraCharge,2);
- own(value,p);release(value);assert.equal(p.ultraCharge,3);assert.equal(p.shotsTaken,3);
- for(let n=0;n<3;n++){own(value,p);release(value);assert.equal(p.shotType,'normal');assert.equal(p.ultraCharge,3);}
- assert.equal(p.shotsTaken,6);assert.equal(mate.ultraCharge,0);
+ own(value,p);assert.equal(value.pass(p,mate),true);assert.equal(p.ultraCharge,0);assert.equal(p.shotsTaken,1);
+ Object.assign(p,{x:850,y:350,aim:{x:1130,y:350}});own(value,p);value.kick(p,40,{accuracy:1});
+ assert.equal(p.ultraCharge,0);value.keeperCatch(value.state.keepers[1]);assert.equal(p.ultraCharge,1);
+ value.keeperCatch(value.state.keepers[1]);assert.equal(p.ultraCharge,1,'a save cannot be counted twice');
+ Object.assign(p,{aim:{x:1130,y:65}});own(value,p);value.kick(p,40,{accuracy:1});value.keeperCatch(value.state.keepers[1]);assert.equal(p.ultraCharge,1);
 });
 
 test('ICE instant chemistry and cinematic assist each count the actual pass exactly once',()=>{
@@ -32,7 +32,7 @@ test('ICE instant chemistry and cinematic assist each count the actual pass exac
   assert.equal(value.useSkill(awakened?3:1),true);value.update(.01);
   if(awakened){assert.equal(p.ultraCharge,0,'windup is not itself a kick');advance(value,1.81);assert.equal(value.state.ball.perfectPass?.fromId,p.id);}
   else assert.equal(value.state.ball.owner,mate.id);
-  assert.equal(p.shotsTaken,1);assert.equal(p.ultraCharge,1);advance(value,.9);assert.equal(p.shotsTaken,1);assert.equal(p.ultraCharge,1);
+  assert.equal(p.shotsTaken,1);assert.equal(p.ultraCharge,0);advance(value,.9);assert.equal(p.shotsTaken,1);assert.equal(p.ultraCharge,0);
  }
 });
 
@@ -40,8 +40,8 @@ test('Magician flight and placement follow-up passes count once, with no charge 
  for(const followup of [false,true]){
   const value=game({gameFormat:'standard-2v2',character:'magician'}),p=value.localPlayer(),mate=value.teammate(p);
   Object.assign(p,{x:300,y:350,aim:{x:500,y:350},ability:followup?{placementFollowup:5}:{}});Object.assign(mate,{x:500,y:350});own(value,p);
-  value.useSkill(followup?1:2);value.update(.01);assert.equal(value.state.ball.perfectPass?.fromId,p.id);assert.equal(p.shotsTaken,1);assert.equal(p.ultraCharge,1);
-  advance(value,.9);assert.equal(p.shotsTaken,1);assert.equal(p.ultraCharge,1);
+  value.useSkill(followup?1:2);value.update(.01);assert.equal(value.state.ball.perfectPass?.fromId,p.id);assert.equal(p.shotsTaken,1);assert.equal(p.ultraCharge,0);
+  advance(value,.9);assert.equal(p.shotsTaken,1);assert.equal(p.ultraCharge,0);
  }
  for(const character of ['ice','magician']){
   const solo=game({character}),p=own(solo);solo.useSkill(character==='ice'?1:2);solo.update(.01);assert.equal(p.ultraCharge,0);assert.equal(p.shotsTaken,0);assert.equal(solo.hasBall(p),true);
@@ -53,7 +53,7 @@ test('Q sends a genuine pass in team matches and leaves solo possession untouche
  for(const gameFormat of ['standard-1v1','standard-2v2']){
   const f=browser({gameFormat});try{
    const p=own(f.value);f.win.dispatchEvent(event('keydown',{key:'q',code:'KeyQ'}));f.value.update(.01);
-   assert.equal(p.ultraCharge,gameFormat==='standard-2v2'?1:0);assert.equal(f.value.hasBall(p),gameFormat==='standard-1v1');
+   assert.equal(p.ultraCharge,0);assert.equal(f.value.hasBall(p),gameFormat==='standard-1v1');
    if(gameFormat==='standard-2v2')assert.equal(f.value.state.ball.passTarget,f.value.teammate(p).id);
   }finally{f.close();}
  }
@@ -65,7 +65,7 @@ test('unearned or off-ball F refuses without charging, kicking, or spending the 
  value.setInput(p.id,{shootHeld:true,ultraShot:true});value.update(.1);assert.equal(p.charging,false);
  value.setInput(p.id,{shootHeld:false,shootRelease:true,ultraShot:true});value.update(.01);
  assert.equal(value.hasBall(p),true);assert.equal(p.shotsTaken,0);assert.equal(p.ultraCharge,0);
- p.ultraCharge=3;value.setOwner(value.opponent(p));assert.equal(value.startUltrashot(),false);assert.equal(p.ultraCharge,3);
+ p.ultraCharge=3;giveBall(value,value.opponent(p));assert.equal(value.startUltrashot(),false);assert.equal(p.ultraCharge,3);
 });
 
 test('F starts and releases Ultra while ordinary mouse input can neither activate nor release it',()=>{
@@ -102,7 +102,7 @@ test('normal maximum hold never upgrades itself and a cancelled F charge retains
 });
 
 test('explicit guest Ultra uses the ordinary input channel and the host decides earned charge',()=>{
- const host=game(),p=host.state.players[1],inputs=[];host.setOwner(p);p.ultraCharge=3;
+ const host=game(),p=host.state.players[1],inputs=[];giveBall(host,p);p.ultraCharge=3;
  const guest=game({mode:'guest',localPlayerId:1,localTeam:1,onInput:input=>{inputs.push(input);host.setInput(1,input);}});guest.importState(host.exportState());
  assert.equal(guest.startUltrashot(),true);host.update(.01);assert.equal(guest.releaseUltrashot(),true);host.update(.01);
  assert.equal(inputs.length,2);assert.equal(inputs[0].ultraShot,true);assert.equal(inputs[1].ultraShot,true);assert.equal(p.ultraCharge,0);assert.ok(['curve','quick'].includes(p.shotType));

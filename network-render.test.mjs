@@ -1,3 +1,4 @@
+import {giveBall} from './test-fixtures.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Game,canvasResolution} from './game.js';
@@ -5,7 +6,7 @@ import {Game,canvasResolution} from './game.js';
 const near=(a,b)=>assert.ok(Math.abs(a-b)<1e-6,`${a} != ${b}`);
 function snapshot(x=400){
   const host=new Game(null,{mode:'online'});host.state.kickoff=null;
-  Object.assign(host.state.players[0],{x,y:350});host.setOwner(host.state.players[0]);
+  Object.assign(host.state.players[0],{x,y:350});giveBall(host,host.state.players[0]);
   host.updateBall(.001);return host.exportState();
 }
 
@@ -88,12 +89,12 @@ test('slow display delivery also lowers pixels, while hidden-tab throttling neve
   assert.equal(game.renderQuality,.5);
 });
 
-test('three additional replay seconds slow only the shot playback and never add buildup',()=>{
+test('replay lead-in adds preceding gameplay without slowing the shot',()=>{
   for(const duration of [.2,1,5]){
     const game=new Game(null,{mode:'online'});game.state.kickoff=null;game.state.elapsed=20;
-    const frame=game.captureFrame();game.shotStartedAt=20;game.shotReplay=[frame];game.history=[{...frame,at:0}];
+    const frame=game.captureFrame();game.shotStartedAt=20;game.shotReplay=[frame];game.history=[{...frame,at:0},{...frame,at:17},{...frame,at:18},{...frame,at:19}];
     game.state.elapsed+=duration;game.goal(0);
-    near(game.state.replayDuration,Math.max(.45,Math.min(3,duration))+3);
-    assert.equal(game.goalReplay[0].at,20);assert.equal(game.goalReplay.at(-1).at,20+duration);
+    near(game.state.replayDuration,duration+3);
+    assert.equal(game.goalReplay[0].at,17);assert.equal(game.goalReplay.at(-1).at,20+duration);
   }
 });

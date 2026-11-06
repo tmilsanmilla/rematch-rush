@@ -1,3 +1,4 @@
+import {giveBall} from './test-fixtures.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Game } from './game.js';
@@ -10,8 +11,8 @@ function setup(character, owner = null) {
   Object.assign(player, { x: 650, y: 350, awakeningCharge: 100 });
   Object.assign(enemy, { x: 730, y: 350 });
   game.state.ball.owner = null;
-  if (owner === player.id) game.setOwner(player);
-  else if (owner === enemy.id) game.setOwner(enemy);
+  if (owner === player.id) giveBall(game,player);
+  else if (owner === enemy.id) giveBall(game,enemy);
   return { game, player, enemy };
 }
 
@@ -88,7 +89,7 @@ test('awakening possession requirements preserve readiness on rejection', () => 
   const defender = setup('manmarker', 0);
   assert.equal(activateAwakening(defender.game, defender.player), false);
   assert.equal(defender.player.awakeningCharge, 100);
-  defender.game.setOwner(defender.enemy);
+  giveBall(defender.game,defender.enemy);
   assert.equal(activateAwakening(defender.game, defender.player), true);
   assert.equal(defender.player.awakeningLeft, 45);
   assert.equal(defender.player.awakeningCharge, 0);
@@ -104,7 +105,7 @@ test('Advantageous blindspot is consumed once per awakening', () => {
   assert.equal(player.ability.blindspotUsed, true);
   advance(game, 1.5);
   assert.equal(getSkills(player, true, false)[2].used, true);
-  game.setOwner(game.state.players[1]);
+  giveBall(game,game.state.players[1]);
   assert.equal(activateSkill(game, player, 2), false);
 });
 
@@ -295,7 +296,7 @@ test('Mysterious knuckle releases once per awakening at 65 power', () => {
   advance(game, 1.7);
   assert.equal(game.state.ball.power, 65);
   assert.equal(game.state.ball.knuckle, true);
-  game.setOwner(player);
+  giveBall(game,player);
   assert.equal(activateSkill(game, player, 2), false);
   assert.equal(getSkills(player, true, true)[2].used, true);
 });
@@ -308,7 +309,7 @@ test('Falcon volley validates airborne distance and Predator Eye runs at 150 per
   assert.equal(player.cooldowns[0], 0);
   game.state.ball.x = player.x + 100;
   assert.equal(activateSkill(game, player, 0), true);
-  assert.equal(game.state.ball.power, 50);
+  advance(game,.16);assert.equal(game.state.ball.power, 50);
   assert(game.state.ball.vz > 0);
   player.cooldowns[1] = 0;
   assert.equal(activateSkill(game, player, 1), true);
@@ -327,7 +328,7 @@ test('Falcon aerial dribble regains possession and Sky domination never scores',
   advance(game, .05);
   assert.equal(game.state.ball.owner, player.id);
   assert.equal(player.x, start + game.width / 3);
-  awakenDirectly(player);
+  game.state.keepers[1].y=600;advance(game,.3);awakenDirectly(player);
   player.cooldowns[2] = 0;
   assert.equal(activateSkill(game, player, 2), true);
   assert.equal(game.state.ball.cannotScore, true);
@@ -357,11 +358,11 @@ test('Magician selects the farthest perfect-pass target and My Assist fires on r
   assert.equal(game.state.ball.perfectPass.targetId, far.id);
   advance(game, .6);
   assert.equal(game.state.ball.owner, far.id);
-  game.setOwner(player);
+  giveBall(game,player);
   player.aim = { x: game.width, y: game.height / 2 - 90 };
   assert.equal(activateSkill(game, player, 2), true);
   assert.equal(game.state.ball.perfectPass.targetId, near.id);
-  advance(game, .3);
+  advance(game, .46);
   assert.equal(game.state.ball.lastTouch, near.id);
   assert.equal(game.state.ball.power, 55, 'the forced 50-power shot receives its Magician teammate’s +5 passive');
   assert.equal(game.state.ball.color, '#ff84cf');
@@ -408,7 +409,7 @@ test('Trapper first-touch bonuses expire and awakening doubles their effects', (
   assert.equal(player.abilitySpeedBoost, 0);
   assert.equal(player.receiptPowerBonus, 0);
   awakenDirectly(player);
-  game.setOwner(enemy); game.setOwner(player);
+  giveBall(game,enemy); giveBall(game,player);
   tickAbilities(game, player, .01);
   assert.equal(player.abilitySpeedBoost, 2);
   assert.equal(player.receiptPowerBonus, 40);
@@ -460,10 +461,10 @@ test('Trapper awakened interception validates a recent opponent shot and ultimat
   awakenDirectly(player);
   assert.equal(activateSkill(game, player, 2), false);
   assert.equal(player.ability.hexchamberUsed, undefined);
-  game.setOwner(enemy); game.kick(enemy, 40);
+  giveBall(game,enemy); game.kick(enemy, 40);
   assert.equal(activateSkill(game, player, 2), true);
   assert.equal(player.ability.hexchamberUsed, true);
-  advance(game, 6.02);
+  advance(game, 6.18);
   assert.equal(game.state.ball.power, 100);
   assert.equal(game.state.ball.lastTouch, player.id);
   assert(game.state.ball.vz > 0);
@@ -521,7 +522,7 @@ test('cinematic specials carry animation data and call a named online guest newb
   const { game, player, enemy } = setup('trapper', 0);
   game.options.mode = 'online'; enemy.name = 'CustomGuestName';
   awakenDirectly(player);
-  game.setOwner(enemy); game.kick(enemy, 40);
+  giveBall(game,enemy); game.kick(enemy, 40);
   assert.equal(activateSkill(game, player, 2), true);
   assert.equal(game.state.cutscene.lines[0], 'Thanks, newbie');
   assert.equal(game.state.cutscene.choreography.kind, 'hexchamber');
@@ -561,13 +562,13 @@ test('all five slots across the expanded roster remain finite and serializable',
 });
 
 
-for (const team of [0, 1]) test(`Street Dribbler follow-up exposes one second of windup and never shoots before it, team ${team}`, () => {
+for (const team of [0, 1]) test(`Street Dribbler follow-up waits one second before shooting, team ${team}`, () => {
   const kicks = [], game = new Game(null, {mode:'online',gameFormat:'standard-1v1',localTeam:team,localPlayerId:team,character:'streetdribbler',onEvent:event=>{if(event.type==='kick')kicks.push({...event,at:game.state.elapsed});}});
   game.state.kickoff = null;
   const player = game.localPlayer(), enemy = game.opponent(player);
   Object.assign(player, {x:600,y:350,ability:{rouletteFollowup:4.5,rouletteLeft:.55},invincible:.55,dribble:.55,motion:{dx:1,dy:0,speed:100,left:.5}});
-  Object.assign(enemy,{x:100,y:100}); game.setOwner(player);
-  assert.match(getSkills(player,false,true)[1].description, /vulnerable 1s windup/);
+  Object.assign(enemy,{x:100,y:100}); giveBall(game,player);
+  assert.match(getSkills(player,false,true)[1].description, /protected 1s windup/);
   assert.equal(game.activateMeteredSkill(player,1),true);
   assert.equal(player.recovery,1); assert.equal(player.invincible,0); assert.equal(player.dribble,0); assert.equal(player.motion,null);
   assert.equal(player.shotWindup.duration,1); assert.equal(player.shotWindup.left,1); assert.equal(game.shotMeter(player).power,75);
@@ -576,7 +577,7 @@ for (const team of [0, 1]) test(`Street Dribbler follow-up exposes one second of
   advance(game,.99); assert.equal(kicks.length,0); assert.equal(game.hasBall(player),true); assert.ok(game.shotMeter(player).fill>.98);
   game.update(.009); assert.equal(kicks.length,0); assert.equal(game.hasBall(player),true);
   game.update(.002); assert.equal(kicks.length,1); assert.ok(game.state.elapsed>=1&&game.state.elapsed<1.01); assert.equal(kicks[0].power,75);
-  assert.equal(player.shotWindup,null); assert.equal(player.ultraCharge,1); assert.equal(game.shotMeter(player).label,'SHOT');
+  assert.equal(player.shotWindup,null); assert.equal(player.ultraCharge,0); assert.equal(game.shotMeter(player).label,'SHOT');
   advance(game,.6); assert.equal(kicks.length,1,'the old one-and-a-half-second task must not release a second shot');
 });
 
@@ -584,14 +585,14 @@ test('perfect-pass flight follows the slower world pace while its aura window us
   const game = new Game(null, {mode:'online',gameFormat:'standard-2v2',character:'magician'});
   game.state.kickoff = null;
   const player = game.localPlayer(), mate = game.state.players.find(other=>other.id!==player.id&&other.team===player.team);
-  Object.assign(player,{x:200,y:250}); Object.assign(mate,{x:800,y:250}); game.setOwner(player);
+  Object.assign(player,{x:200,y:250}); Object.assign(mate,{x:800,y:250}); giveBall(game,player);
   assert.equal(activateSkill(game,player,1),true);
   const flight = game.state.ball.perfectPass, duration = flight.duration;
   tickAbilities(game,player,.1);
   assert.ok(Math.abs(flight.left-(duration-.085))<1e-9);
   assert.ok(Math.abs(game.state.ball.x-(200+600*.085/duration))<1e-9);
   assert.ok(Math.abs(player.ability.auraLeft-.9)<1e-9,'the visual ability window still advances by the full real tenth of a second');
-  assert.equal(player.ultraCharge,1,'flight progress does not add a second kick');
+  assert.equal(player.ultraCharge,0,'passes never charge Ultra');
   tickAbilities(game,player,duration-.1);
   assert.equal(game.state.ball.owner,null,'the pass cannot snap to its receiver at the old unpaced deadline');
   tickAbilities(game,player,duration/.85-duration+.001);

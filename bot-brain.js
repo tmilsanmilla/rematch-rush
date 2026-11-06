@@ -1,4 +1,4 @@
-import { ROSTER, getSkills } from './characters.js?v=7';
+import { ROSTER, getSkills } from './characters.js?v=8';
 
 const FIELD = { left: 70, right: 1130, top: 65, bottom: 635, goalTop: 260, goalBottom: 440 };
 const MID = { x: 600, y: 350 };
@@ -125,7 +125,7 @@ export function updateBotPlayer(game, p, dt) {
   if (p.awakeningCharge >= 100 && !p.awakened && awakening && !p.motion && (s.awakeningOwner == null || s.awakeningOwner === p.id) && (awakening.requires === 'any' || awakening.requires === 'on-ball' && own || awakening.requires === 'off-ball' && !own)) {
     brain.shot = null; brain.skillThink = .9; send({ keys: {}, shootHeld: false, awaken: true }); return;
   }
-  if (!brain.shot && brain.skillThink <= 0) {
+  if (!brain.shot && brain.skillThink <= 0 && (!own || game.shotReady(p))) {
     brain.skillThink = 1.15 + randomUnit(random) * .45;
     const choices = botSkillChoices(game, p);
     if (choices.length) {
@@ -141,7 +141,7 @@ export function updateBotPlayer(game, p, dt) {
     if (game.pass(p, mate, { power: 18 })) { s.lastTeamPassAt ||= [-10, -10]; s.lastTeamPassAt[p.team] = s.elapsed; brain.shot = null; send({ keys: {}, shootHeld: false }); return; }
   }
   const shootingLane = goalDistance <= 650 && (Math.abs(p.y - MID.y) <= 210 || goalDistance < 280);
-  if (own && shootingLane && !p.motion) {
+  if (own && shootingLane && !p.motion && game.shotReady(p)) {
     if (!brain.shot) brain.shot = { aim: chooseBotAim(game, p, random), ultraShot: game.ultraReady(p), power: 18 + randomUnit(random) * 6, strafe: randomUnit(random) < .5 ? -1 : 1, startedAt: s.elapsed };
     const shot = brain.shot, keeper = s.keepers?.find(k => k.team !== p.team), keeperClose = keeper && game.distance(p, keeper) < 115;
     const release = p.charge >= shot.power || p.charging && (keeperClose && p.charge >= 5 || goalDistance < 280 && p.charge >= 14 || enemy && game.distance(p, enemy) < 90 && p.charge >= 12);
@@ -163,7 +163,16 @@ export function updateBotPlayer(game, p, dt) {
       const nearestDefender = allies.slice().sort((a, q) => game.distance(a, c.carrier) - game.distance(q, c.carrier))[0];
       if (nearestDefender === p) { tx = c.carrier.x - dir * 25; ty = c.carrier.y; }
       else { tx = c.carrier.x - dir * 120; ty = clamp(MID.y + (p.id < 2 ? -130 : 130), FIELD.top + 40, FIELD.bottom - 40); }
-    } else if (typeof b.owner === 'string') { tx = p.team ? 760 : 440; ty = MID.y + (p.id < 2 ? -95 : 95); }
+    } else if (typeof b.owner === 'string') {
+      const keeper=s.keepers.find(k=>k.id===b.owner),friendly=keeper?.team===p.team;
+      if(brain.keeperId!==b.owner||!brain.keeperLane||s.elapsed>brain.keeperLane.until){
+        const spread=randomUnit(random),side=randomUnit(random)<.5?-1:1;
+        brain.keeperId=b.owner;brain.keeperLane={x:(friendly?(p.team?840:360):(p.team?480:720))+dir*(spread-.5)*180,y:MID.y+side*(65+randomUnit(random)*150),until:s.elapsed+.65+randomUnit(random)*.65};
+      }
+      tx=brain.keeperLane.x;ty=brain.keeperLane.y;
+      if(friendly&&enemy&&game.distance(p,enemy)<110)ty=clamp(ty+(p.y>enemy.y?85:-85),FIELD.top+45,FIELD.bottom-45);
+      if(!friendly&&c.enemy){tx=clamp((c.enemy.x+(p.team?1130:70))*.5,FIELD.left+120,FIELD.right-120);ty=clamp(c.enemy.y+(p.id%2?1:-1)*(45+randomUnit(random)*40),FIELD.top+50,FIELD.bottom-50);}
+    }
     else if (nearest !== p) { tx = clamp(b.x + dir * 120, FIELD.left + 80, FIELD.right - 80); ty = clamp(b.y + (p.id < 2 ? -140 : 140), FIELD.top + 50, FIELD.bottom - 50); }
     const dx = tx - p.x, dy = ty - p.y;
     brain.decision = { keys: { w: dy < -13, s: dy > 13, a: dx < -13, d: dx > 13 }, aim: { x: goalX, y: MID.y } };

@@ -133,7 +133,7 @@ export const ROSTER = [
     skills: [
       S('Abrirse paso cortando', 19, 'On-ball: dash half a field forward, a third backward, then a quarter diagonally down and forward with yellow butterfly wings.'),
       S('El primer toque es suficiente', 25, 'Off-ball with a loose or airborne ball: rush to trap it, heel-flick, then dash a third of the field. On-ball: Todos ellos caen weaves through three diagonal sixth-field dashes and stuns opponents for 2s. Follow with Corte mariposa for a 30s combined cooldown.'),
-      S('Golpe de aproximación', 23, 'On-ball: a vulnerable 1.5s windup into an untrappable 10-power airborne topspin chip. Maintains speed for 5s; almost impossible to save unless directly at the keeper.'),
+      S('Golpe de aproximación', 23, 'On-ball: a protected 1.5s windup into an untrappable 10-power airborne topspin chip. Maintains speed for 5s; almost impossible to save unless directly at the keeper.'),
     ],
     awakening: { name: 'IT’S SHOWTIME!', duration: 60, requires: 'on-ball', description: 'Gain large transparent yellow butterfly wings and replace every move for 60s.', quotes: ['Now…', 'IT’S SHOWTIME!'] },
   },
@@ -197,11 +197,11 @@ export function getSkills(character, awakened = false, hasBall = false) {
     if (awakened) skills = [
       S('METAVISION', 40, 'Move 50% faster and become immune to ragdolls for 10s.'),
       S('Injury-inducing swerve', 30, 'On-ball with an opponent ahead: bait their run, suddenly stop, stun them for 2s, and accelerate away.'),
-      hasBall ? S('Incomprehensible drive', 0, 'Three automatic team passes, a corner run, and an airborne rabona into the box. Requires a teammate.', { once: true, used: !!state.driveUsed }) : S('MINE.', 0, 'A teammate passes to you, then a vulnerable 2s windup sends an unpredictable 20-power knuckleball. Requires a teammate.', { once: true, used: !!state.mineUsed }),
+      hasBall ? S('Incomprehensible drive', 0, 'Three automatic team passes, a corner run, and an airborne rabona into the box. Requires a teammate.', { once: true, used: !!state.driveUsed }) : S('MINE.', 0, 'A teammate passes to you, then a protected 2s windup sends an unpredictable 20-power knuckleball. Requires a teammate.', { once: true, used: !!state.mineUsed }),
     ];
   }
   if (id === 'streetdribbler') {
-    if (state.rouletteFollowup > 0) skills[1] = S('Meta no prazo', 34, 'Follow-up: a vulnerable 1s windup, then an airborne, wildly curved 75-power shot.', { followup: true });
+    if (state.rouletteFollowup > 0) skills[1] = S('Meta no prazo', 34, 'Follow-up: a protected 1s windup, then an airborne, wildly curved 75-power shot.', { followup: true });
     if (awakened) {
       skills[0] = S('Destruição total do campo', 0, 'An aggressive half-field dribble floors everyone in your path. Reach the opposing box to nutmeg the keeper and score.', { once: true, used: !!state.destructionUsed });
       skills[2] = S('Curva de horas extras', 0, 'An airborne 90-power curved shot, with 50% less accuracy.', { once: true, used: !!state.overtimeUsed });
@@ -298,9 +298,10 @@ const pass = (g, from, to, { air = false, curve = 0, power = 60 } = {}) => {
   if (!g.hasBall(from)) return false;
   const oldAim = from.aim;
   from.aim = { x: to.x, y: to.y };
-  kick(g, from, power, { air, curve, accuracy: 1, color: CYAN });
+  kick(g, from, power, { pass: true, air, curve, accuracy: 1, color: CYAN });
   from.aim = oldAim;
   // Normal ball physics still apply: ground passes can be intercepted.
+  g.state.ball.finish = null;
   g.state.ball.passTarget = to.id;
   return true;
 };
@@ -512,7 +513,7 @@ export function activateSkill(g, p, slot) {
       if (!g.hasBall(p)) {
         if (!ready(g, p, g.hasBall(mate), 'Your teammate must have the ball.') || !spend(g, p, 'mineUsed')) return false;
         aura(p, CYAN, 3); pass(g, mate, p, { power: 65 });
-        // Begin the exposed windup only after the pass actually reaches this player.
+        // Start this protected windup only after the pass reaches its receiver.
         a.awaitMine = 8; return true;
       }
       if (!spend(g, p, 'driveUsed')) return false;
@@ -974,7 +975,7 @@ export function tickAbilities(g, p, dt) {
   if (a.awaitMine > 0) {
     a.awaitMine -= dt;
     if (g.hasBall(p)) {
-      a.awaitMine = 0; recover(p, 2); effect(g, 'charge', p, CYAN, 2);
+      a.awaitMine = 0; p.shotWindup={power:20,duration:2,left:2,cinematic:false}; recover(p, 2); effect(g, 'charge', p, CYAN, 2);
       later(g, 2, () => { if (currentAwakening(p) && g.hasBall(p)) kick(g, p, 20, { curve: 1.3, knuckle: true, savePower: 50 }); });
     }
   }
@@ -1001,7 +1002,7 @@ export function tickAbilities(g, p, dt) {
 }
 
 // Arrival moves use the same authoritative pass, dash and shot paths as ordinary
-// play. Cinematic callbacks recheck possession so an exposed windup can be beaten.
+// play. Cinematic callbacks still recheck ownership; long metered windups protect the ball.
 const ownHalf = (g, p) => p.team === 0 ? p.x < g.width / 2 : p.x > g.width / 2;
 const canTouchLoose = (g, p, range = g.width / 6) => g.state.ball.owner == null && !protectedBall(g) && dist(g, p, g.state.ball) <= range;
 const wingAura = (p, duration) => { ability(p).wingsLeft = Math.max(ability(p).wingsLeft || 0, duration); p.butterflyWings = true; aura(p, YELLOW, duration); };

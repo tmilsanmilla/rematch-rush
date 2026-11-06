@@ -1,4 +1,4 @@
-import { selectBotCharacter } from './bot-brain.js?v=1';
+import { selectBotCharacter } from './bot-brain.js?v=2';
 
 /**
  * Host-authoritative one- and two-player teams over PeerJS 1.5.5 / WebRTC.

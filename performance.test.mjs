@@ -1,3 +1,4 @@
+import {giveBall} from './test-fixtures.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Game, canvasResolution, fitViewport } from './game.js';
@@ -129,7 +130,7 @@ function match(extra={}){const game=new Game(null,{mode:'online',...extra});game
 
 test('player walking and carrying use exactly one 85 percent motion multiplier',()=>{
  for(const carrying of [false,true]){
-  const game=match(),p=game.localPlayer();if(carrying)game.setOwner(p);const x=p.x;game.setInput(p.id,{keys:{d:true}});advance(game,.5);
+  const game=match(),p=game.localPlayer();if(carrying)giveBall(game,p);const x=p.x;game.setInput(p.id,{keys:{d:true}});advance(game,.5);
   near(p.x-x,194*(carrying?.8:1)*.5*.85);near(game.state.elapsed,.5);near(game.state.time,299.5);
  }
 });
@@ -154,7 +155,7 @@ test('ground, curved and airborne balls follow the original physical path at exa
 });
 
 test('ball launch and gravity apply pace once, including throws and airborne team passes',()=>{
- const game=match({gameFormat:'standard-2v2'}),[p,,mate]=game.state.players;Object.assign(p,{x:300,y:350});Object.assign(mate,{x:600,y:350});game.setOwner(p);
+ const game=match({gameFormat:'standard-2v2'}),[p,,mate]=game.state.players;Object.assign(p,{x:300,y:350});Object.assign(mate,{x:600,y:350});giveBall(game,p);
  assert.equal(game.pass(p,mate,{air:true,power:55}),true);const b=game.state.ball,start={x:b.x,y:b.y,z:b.z,vx:b.vx,vy:b.vy,vz:b.vz};
  game.state.keepers.forEach(k=>k.holding=999);game.updateBall(.01);near(b.x-start.x,start.vx*.01*.85);near(b.vz,start.vz-440*.01*.85);assert.ok(b.z>start.z);
  const thrown=match(),keeper=thrown.state.keepers[0];thrown.keeperCatch(keeper);advance(thrown,1.99);assert.equal(thrown.state.ball.owner,keeper.id);
@@ -162,17 +163,17 @@ test('ball launch and gravity apply pace once, including throws and airborne tea
 });
 
 test('scripted scoring flight is paced while clock, charge, cooldown and windup remain real-time',()=>{
- const scripted=match(),p=scripted.localPlayer();scripted.setOwner(p);scripted.guaranteedGoal(p);const shot=scripted.state.ball.scriptedGoal,from={...shot.from},to={...shot.to};
+ const scripted=match(),p=scripted.localPlayer();giveBall(scripted,p);scripted.guaranteedGoal(p);const shot=scripted.state.ball.scriptedGoal,from={...shot.from},to={...shot.to};
  scripted.updateBall(.2);near(scripted.state.ball.x,from.x+(to.x-from.x)*(.2*.85/.55));assert.equal(scripted.state.phase,'play');
  scripted.updateBall(.55/.85-.2+.001);assert.equal(scripted.state.phase,'celebrate');
- const game=match({character:'powershooter'}),striker=game.localPlayer();game.setOwner(striker);striker.cooldowns[1]=10;striker.dribbleCd=2;striker.ability={auraLeft:10};game.startShot();game.update(.001);advance(game,.25);
+ const game=match({character:'powershooter'}),striker=game.localPlayer();giveBall(game,striker);striker.cooldowns[1]=10;striker.dribbleCd=2;striker.ability={auraLeft:10};game.startShot();game.update(.001);advance(game,.25);
  near(striker.charge,5+100*.25);near(striker.cooldowns[1],10-.251);near(striker.dribbleCd,2-.251);near(striker.ability.auraLeft,10-.251);near(game.state.time,300-.251);
- game.suspendControls();game.useSkill(1);game.update(.001);assert.equal(game.shotMeter(striker).power,45);advance(game,.5);near(striker.shotWindup.left,.5);assert.equal(game.state.ball.owner,striker.id);advance(game,.501);assert.equal(game.state.ball.power,45);assert.equal(striker.ultraCharge,1);
+ game.suspendControls();game.useSkill(1);game.update(.001);assert.equal(game.shotMeter(striker).power,45);advance(game,.5);near(striker.shotWindup.left,.5);assert.equal(game.state.ball.owner,striker.id);advance(game,.501);assert.equal(game.state.ball.power,45);assert.equal(striker.ultraCharge,0);
 });
 
 test('free aiming draws neither a crosshair nor an aim ray over the pitch',()=>{
  const arcs=[],lines=[],ctx=new Proxy({arc:(...args)=>arcs.push(args),lineTo:(...args)=>lines.push(args)},{get:(object,key)=>object[key]||(()=>{})});
- const game=new Game({width:1200,height:700,getContext:()=>ctx,getBoundingClientRect:()=>({left:0,top:0,width:1200,height:700})},{mode:'online'});game.state.kickoff=null;game.setOwner(game.localPlayer());game.effects=[];game.localInput.aim={x:743,y:417};game.inputs[game.localPlayerId].aim={x:743,y:417};
+ const game=new Game({width:1200,height:700,getContext:()=>ctx,getBoundingClientRect:()=>({left:0,top:0,width:1200,height:700})},{mode:'online'});game.state.kickoff=null;giveBall(game,game.localPlayer());game.effects=[];game.localInput.aim={x:743,y:417};game.inputs[game.localPlayerId].aim={x:743,y:417};
  for(const method of ['drawCachedPitch','drawPlayer','drawBall','drawShotPower'])game[method]=()=>{};
  game.render();assert.equal(arcs.length,0);assert.equal(lines.length,0);
 });

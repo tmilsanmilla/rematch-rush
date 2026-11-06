@@ -90,8 +90,8 @@ test('fresh and later Characterless matches render an honest HUD without stale c
   app.setGame({});
   app.updateHUD(state());
   assert.match(app.node('#ability-list').innerHTML, /No character abilities/);
-  assert.match(app.node('#ability-list').innerHTML, /data-action="tackle"/);
-  assert.match(app.node('#ability-list').innerHTML, /Dribble 1\.7s · tackle 2s/);
+  assert.doesNotMatch(app.node('#ability-list').innerHTML, /data-action="(?:shoot|pass|tackle)"/);
+  assert.doesNotMatch(app.node('#ability-list').innerHTML, /<small>|<kbd>/);
   app.resetHUD();
   app.updateHUD(state('powershooter'));
   assert.match(app.node('#ability-list').innerHTML, /Power shot/);
@@ -111,23 +111,23 @@ test('the local power HUD retains the released shot strength instead of immediat
   assert.equal(app.node('#charge-fill').style.width, '42%');
 });
 
-test('every character shows separate normal shooting and an F Ultrashot charged by three kicks', () => {
+test('every character uses compact named moves and an F Ultrashot charged by on-target shots', () => {
   const app = appHarness(); app.setGame({});
   for (const character of ROSTER) {
     const match = state(character.id);
     app.updateHUD(match);
     const controls = app.node('#ultra-shot-control').innerHTML;
-    assert.match(controls, /data-action="shoot"/);
+    assert.doesNotMatch(controls, /data-action="(?:shoot|pass)"/);
     assert.match(controls, /data-action="ultrashot"/);
-    assert.match(controls, /<kbd>F<\/kbd>/);
+    assert.match(controls, /title="F:/);
     assert.match(controls, /<b>Ultrashot<\/b>/);
-    assert.equal(app.node('#ultra-shot-status').textContent, '3 KICKS TO ULTRA');
-    for (const [charge, expected] of [[1, '2 KICKS TO ULTRA'], [2, '1 KICKS TO ULTRA'], [3, 'ULTRA READY · F'], [4, 'ULTRA READY · F']]) {
+    assert.equal(app.node('#ultra-shot-status').textContent, '3 ON-TARGET SHOTS TO ULTRA');
+    for (const [charge, expected] of [[1, '2 ON-TARGET SHOTS TO ULTRA'], [2, '1 ON-TARGET SHOTS TO ULTRA'], [3, 'ULTRA READY · F'], [4, 'ULTRA READY · F']]) {
       match.players[0].ultraCharge = charge; app.updateHUD(match);
       assert.equal(app.node('#ultra-shot-status').textContent, expected);
     }
     match.players[0].ultraCharge = 0; app.updateHUD(match);
-    assert.equal(app.node('#ultra-shot-status').textContent, '3 KICKS TO ULTRA', 'only an actual explicit Ultra resets the meter');
+    assert.equal(app.node('#ultra-shot-status').textContent, '3 ON-TARGET SHOTS TO ULTRA', 'only an actual explicit Ultra resets the meter');
   }
 });
 
@@ -380,7 +380,7 @@ test('every character guide visibly explains regular moves, possession variants,
       assert.ok(html.includes(`<p>${escapeMarkup(character.passive.description)}</p>`));
     }
     assert.match(html, /Ultrashot · every character/);
-    assert.match(html, /[Ee]very kick/);
+    assert.match(html, /on-target shots that force a save or score/);
     assert.match(html, /(?:hold|press) F/i);
     assert.doesNotMatch(html, /Every third shot becomes/);
   }
@@ -447,7 +447,7 @@ test('the game UI preserves ordinary aiming and exposes an explicit optional cur
   assert.equal(app.node('#cursor-lock-button').attrs['aria-pressed'],'false');assert.equal(app.node('#cursor-lock-button').textContent,'CTRL LOCK');
   app.click('cursor-lock');app.updateHUD(state());assert.equal(calls,1);assert.equal(app.node('#cursor-lock-button').textContent,'UNLOCK');assert.equal(app.node('#cursor-lock-button').attrs['aria-pressed'],'true');
   const html=readFileSync(new URL('./index.html',import.meta.url),'utf8');assert.match(html,/data-action="cursor-lock"/);
-  app.click('help');assert.match(app.node('#modal-content').innerHTML,/Point at the pitch to choose your shot direction/);assert.match(app.node('#modal-content').innerHTML,/Optional Ctrl lock/);assert.match(app.node('#modal-content').innerHTML,/only the final shot/);
+  app.click('help');assert.match(app.node('#modal-content').innerHTML,/Point at the pitch to choose your shot direction/);assert.match(app.node('#modal-content').innerHTML,/Optional Ctrl lock/);assert.match(app.node('#modal-content').innerHTML,/three seconds before the final shot/);
 });
 
 test('Escape releases optional cursor lock without opening the help overlay',()=>{
@@ -576,18 +576,12 @@ test('a queue failure preserves the menu and exposes retry instead of room-code 
   assert.match(app.node('#modal-content').innerHTML + app.node('#online-panel').innerHTML, /[Tt]ry again|[Rr]etry|queue-online/);
 });
 
-test('pass buttons stay visible, explain 1v1 unavailability, and enable for a same-team partner', () => {
-  const app = appHarness(); let passes = 0; app.setGame({usePass(){passes++;}});
-  const match = state(); app.updateHUD(match);
-  for (const id of ['#pass-button', '#touch-pass-button']) {
-    assert.equal(app.node(id).hidden, false);
-    assert.equal(app.node(id).disabled, true);
-    assert.match(app.node(id).title || '', /[Tt]eammate|[Tt]eam/);
-  }
-  match.players.push({id:2,team:0,character:'none',charge:0,cooldowns:[]}); app.updateHUD(match);
-  assert.equal(app.node('#pass-button').disabled, false);
-  assert.equal(app.node('#touch-pass-button').disabled, false);
-  app.click('pass'); assert.equal(passes, 1);
+test('shoot and pass cards are absent while keyboard pass routing remains available',()=>{
+ const app=appHarness();let passes=0;app.setGame({usePass(){passes++;}});app.updateHUD(state());
+ const html=readFileSync(new URL('./index.html',import.meta.url),'utf8');
+ assert.doesNotMatch(html,/id="(?:pass-button|touch-pass-button)"/);
+ assert.doesNotMatch(app.node('#ultra-shot-control').innerHTML,/data-action="(?:pass|shoot)"/);
+ app.click('pass');assert.equal(passes,1);
 });
 
 test('the UI and simulation import the same character revision and team pass calls the engine', () => {

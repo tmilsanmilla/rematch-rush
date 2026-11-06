@@ -1,3 +1,4 @@
+import {giveBall} from './test-fixtures.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Game,fitViewport} from './game.js';
@@ -6,7 +7,7 @@ function withRandom(random,callback){const previous=Math.random;try{Math.random=
 function match(team=0){const game=new Game(null,{mode:'online',localTeam:team});game.state.kickoff=null;return game;}
 function release(game,distance,roll,{team=0,type='normal',...options}={}){
  const p=game.state.players[team],goalX=team?70:1130;
- Object.assign(p,{x:goalX+(team?distance:-distance),y:350,aim:{x:goalX,y:350},ultraCharge:type==='normal'?0:3});game.setOwner(p);
+ Object.assign(p,{x:goalX+(team?distance:-distance),y:350,aim:{x:goalX,y:350},ultraCharge:type==='normal'?0:3});giveBall(game,p);
  let draws=0;withRandom(()=>type==='normal'?roll:draws++===0?(type==='curve'?.25:.75):roll,()=>game.kick(p,80,{fromF:true,ultraShot:type!=='normal',...options}));
  return {p,ball:game.state.ball,placement:{...game.state.ball.finish.placement}};
 }
@@ -31,7 +32,7 @@ test('real shot flights increasingly miss the posts with distance for either tea
 });
 
 test('ordinary shot placement is sampled once at release and stays deterministic throughout flight',()=>{
- const game=match(),p=game.state.players[0];Object.assign(p,{x:150,y:350,aim:{x:1130,y:350}});game.setOwner(p);
+ const game=match(),p=game.state.players[0];Object.assign(p,{x:150,y:350,aim:{x:1130,y:350}});giveBall(game,p);
  let calls=0;withRandom(()=>{calls++;return .6;},()=>{
   game.kick(p,50,{fromF:true});const finish=game.state.ball.finish,placement={...finish.placement};
   assert.ok(Math.abs(placement.error)>.1);for(let i=0;i<20;i++)game.updateBall(.01);
@@ -46,7 +47,7 @@ test('Ultra placement is tighter while perfect accuracy and explicit choreograph
  for(const options of [{accuracy:1},{angle:0}]){
   const {ball,placement}=release(match(),950,.99,options);assert.equal(placement.error,0);assert.equal(placement.spread,0);assert.equal(ball.vy,0);
  }
- const game=match(),p=game.state.players[0];Object.assign(p,{x:100,y:350});game.setOwner(p);
+ const game=match(),p=game.state.players[0];Object.assign(p,{x:100,y:350});giveBall(game,p);
  assert.equal(withRandom(()=>.99,()=>game.guaranteedGoal(p)),true);assert.ok(game.state.ball.scriptedGoal);
  const travelSeconds=game.motionDuration(.55);
  for(let i=0;i<Math.ceil(travelSeconds/.01)+1&&game.state.phase==='play';i++)game.updateBall(.01);assert.equal(game.state.score[0],1);

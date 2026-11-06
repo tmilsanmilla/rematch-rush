@@ -196,7 +196,7 @@ test('integrated Game bot awakens then queues, validates and completes its real 
   assert.equal(game.state.ball.owner, null);
   assert.equal(game.state.ball.knuckle, true);
   assert.equal(game.state.ball.power, 65);
-  assert.equal(p.ultraCharge, 1);
+  assert.equal(p.ultraCharge, 0);
 });
 
 test('integrated Game bots move and release normal shots or explicitly earned Ultras through the host simulation', () => {
@@ -211,7 +211,7 @@ test('integrated Game bots move and release normal shots or explicitly earned Ul
     assert.equal(kicks.length, 1);
     assert.ok(Math.hypot(p.x - start.x, p.y - start.y) > 20, 'charging has real paced player movement');
     assert.equal(kicks[0].fromF, ultraCharge === 3);
-    assert.equal(p.ultraCharge, ultraCharge === 3 ? 0 : 1);
+    assert.equal(p.ultraCharge, 0);
     assert.equal(p.shotsTaken, 1);
     assert.equal(game.state.ball.owner, null);
   }

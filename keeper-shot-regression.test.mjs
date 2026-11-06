@@ -1,3 +1,4 @@
+import {giveBall} from './test-fixtures.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Game, MOTION_PACE} from './game.js';
@@ -34,7 +35,7 @@ for(const team of [0,1]){
  });
  test(`full normal and Ultra charges release promptly while the player can keep moving, team ${team}`,()=>{
   for(const ultra of [false,true]){
-   const {game,player}=match(team);game.setOwner(player);player.ultraCharge=ultra?3:0;
+   const {game,player}=match(team);giveBall(game,player);player.ultraCharge=ultra?3:0;
    const x=player.x;game.setInput(player.id,{shootHeld:true,ultraShot:ultra,keys:{[team?'a':'d']:true}});
    game.update(.005);advance(game,.5);assert.ok(Math.abs(player.charge-55)<1e-8);assert.equal(player.shotsTaken,0);assert.ok(Math.abs(player.x-x)>50);
    advance(game,.455);assert.equal(player.charge,100);assert.equal(player.shotsTaken,0);
@@ -47,7 +48,7 @@ for(const team of [0,1]){
    let goals=0;
    for(let i=0;i<100;i++){
     const {game,player}=match(team),goalX=team?70:1130;
-    Object.assign(player,{x:goalX+(team?distance:-distance),y:350,aim:{x:goalX,y:350}});game.setOwner(player);
+    Object.assign(player,{x:goalX+(team?distance:-distance),y:350,aim:{x:goalX,y:350}});giveBall(game,player);
     random((i+.5)/100,()=>game.kick(player,80,{angle:team?Math.PI:0}));
     for(let tick=0;tick<500&&game.state.phase==='play'&&typeof game.state.ball.owner!=='string';tick++)game.update(.005);
     goals+=Number(game.state.score[team]>0);
@@ -75,15 +76,15 @@ test('a distribution lands at the planned receiving point rather than rolling fa
  assert.ok(game.state.ball.z<2);assert.equal(game.state.ball.cannotScore,true);
 });
 
-test('the replay starts at the final shot release and excludes earlier possession and passes',()=>{
+test('the replay includes the three-second lead-in and final shot at real speed',()=>{
  const {game,player}=match(0,{gameFormat:'standard-2v2'});advance(game,12);
  const mate=game.state.players[2];Object.assign(mate,{x:500,y:350});Object.assign(player,{x:650,y:350});game.state.players.filter(p=>p.team===1).forEach(p=>Object.assign(p,{y:580,stun:100}));
- game.setOwner(mate);game.pass(mate,player);const earlierPass=game.state.elapsed;advance(game,.3);assert.equal(game.hasBall(player),true);
+ giveBall(game,mate);game.pass(mate,player);const earlierPass=game.state.elapsed;advance(game,.3);assert.equal(game.hasBall(player),true);advance(game,.16);
  Object.assign(player,{x:880,y:350,aim:{x:1130,y:280}});
  game.state.keepers[1].y=800;const release=game.state.elapsed;
  random(0,()=>game.kick(player,80,{angle:Math.atan2(-70,250)}));
  for(let i=0;i<400&&game.state.phase==='play';i++)game.update(.005);
- assert.equal(game.state.score[0],1);assert.ok(release>earlierPass);assert.equal(game.goalReplay[0].at,release);assert.ok(game.goalReplay.every(frame=>frame.at>=release));
- assert.ok(game.state.replayDuration<=6);assert.ok(game.state.replayDuration>=3.45);
+ assert.equal(game.state.score[0],1);assert.ok(release>earlierPass);assert.ok(Math.abs(game.goalReplay[0].at-(release-3))<.1);assert.ok(game.goalReplay.some(frame=>frame.at===release));
+ assert.ok(game.state.replayDuration<=6);assert.ok(game.state.replayDuration>=3);
  const guest=new Game(null,{mode:'guest'});guest.importState(game.exportState());assert.deepEqual(guest.goalReplay,game.goalReplay);assert.equal(guest.state.replayDuration,game.state.replayDuration);
 });

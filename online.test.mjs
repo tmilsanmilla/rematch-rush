@@ -1,3 +1,4 @@
+import {giveBall} from './test-fixtures.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { OnlineSession, normalizeRoomConfig } from './online.js';
@@ -351,7 +352,7 @@ test('a disconnected opponent cannot rematch and the surviving screen receives t
 test('a high-polling guest keeps traffic bounded while its shot and ability reach the host without losing an edge', async t => {
   const {host,guest,hostEvents,guestEvents}=await connectedPair(t);
   const hostGame=new Game(null,{mode:'online',opponentCharacter:'manmarker'});
-  hostGame.state.kickoff=null;hostGame.setOwner(hostGame.state.players[1]);
+  hostGame.state.kickoff=null;giveBall(hostGame,hostGame.state.players[1]);
   const guestGame=new Game(null,{mode:'guest',localTeam:1,character:'manmarker',onInput:input=>guest.sendInput(input)});
   guestGame.importState(hostGame.exportState());
   const receive=host.onInput;host.onInput=input=>{receive(input);hostGame.setInput(1,input);};
@@ -557,7 +558,7 @@ test('four real game engines route guest movement, skills and Q passes through o
     if (index === 0) {
       game.state.kickoff = null;
       [[300, 200], [700, 250], [450, 500], [900, 500]].forEach(([x, y], id) => Object.assign(game.state.players[id], { x, y }));
-      game.setOwner(game.state.players[2]);
+      giveBall(game,game.state.players[2]);
       // The application may publish from its initial HUD callback before the
       // final guest's join() has resolved. Every guest must already have a game.
       assert.equal(sessions[0].sendState(game.exportState()), true);

@@ -1,3 +1,4 @@
+import {giveBall} from './test-fixtures.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Game,fitViewport} from './game.js';
@@ -11,7 +12,7 @@ function fixture(mode='online',initial={}){
  const game=new Game(canvas,{mode,onInput:input=>sent.push(input)});game.state.kickoff=null;game.bind();
  return {game,win,doc,canvas,sent,get measurements(){return measurements;},get requests(){return requests;},resize(value){Object.assign(rect,value);},close(){game.stop();if(previousWindow===undefined)delete globalThis.window;else globalThis.window=previousWindow;}};
 }
-const own=f=>{const p=f.game.localPlayer();Object.assign(p,{x:400,y:350});f.game.setOwner(p);return p;};
+const own=f=>{const p=f.game.localPlayer();Object.assign(p,{x:400,y:350});giveBall(f.game,p);return p;};
 
 test('free absolute mouse aiming follows the ordinary pointer without requesting lock or using relative movement',()=>{
  const f=fixture('guest');try{
@@ -157,7 +158,7 @@ test('normal F, Q, movement and skill controls remain active while editable fiel
 });
 
 test('a cancellation edge still clears a queued authoritative release',()=>{
- const value=new Game(null,{mode:'online'}),p=value.state.players[1];value.state.kickoff=null;value.setOwner(p);value.setInput(1,{shootHeld:true});value.update(.01);value.setInput(1,{shootHeld:false,shootRelease:true});
+ const value=new Game(null,{mode:'online'}),p=value.state.players[1];value.state.kickoff=null;giveBall(value,p);value.setInput(1,{shootHeld:true});value.update(.01);value.setInput(1,{shootHeld:false,shootRelease:true});
  assert.ok(value.pending[1].some(([kind])=>kind==='shoot'));value.setInput(1,{keys:{},shootHeld:false,cancelShot:true});value.update(.01);assert.equal(value.hasBall(p),true);assert.equal(p.shotsTaken,0);
 });
 
