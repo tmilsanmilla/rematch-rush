@@ -9,10 +9,11 @@ const MAX_CANVAS_PIXELS=1600000,MAX_CANVAS_SIDE=2560,MAX_EFFECTS=48;
 export const MOTION_PACE=.85;
 export const ACTION_COOLDOWNS=Object.freeze({dribble:1.7,tackle:2});
 export const SHOT_CHARGE=Object.freeze({perSecond:100,maxHold:.25});
+export const REPLAY_EXTRA_SECONDS=3;
 export function fitViewport(width,height){if(!(Number.isFinite(width)&&Number.isFinite(height)&&width>0&&height>0))return {scale:0,x:0,y:0,width:0,height:0};const scale=Math.max(0,Math.min(width/WORLD.width,height/WORLD.height));return {scale,x:(width-WORLD.width*scale)/2,y:(height-WORLD.height*scale)/2,width:WORLD.width*scale,height:WORLD.height*scale};}
-export function canvasResolution(width,height,dpr=1){
+export function canvasResolution(width,height,dpr=1,quality=1){
  if(!(Number.isFinite(width)&&Number.isFinite(height)&&width>0&&height>0))return {width:0,height:0,scale:0};
- const scale=Math.min(Math.max(1,Number.isFinite(dpr)?dpr:1),1.5,MAX_CANVAS_SIDE/width,MAX_CANVAS_SIDE/height,Math.sqrt(MAX_CANVAS_PIXELS/(width*height)));
+ const scale=Math.min(Math.max(1,Number.isFinite(dpr)?dpr:1),1.5,MAX_CANVAS_SIDE/width,MAX_CANVAS_SIDE/height,Math.sqrt(MAX_CANVAS_PIXELS/(width*height)))*clamp(Number.isFinite(quality)?quality:1,.5,1);
  return {width:Math.max(1,Math.floor(width*scale)),height:Math.max(1,Math.floor(height*scale)),scale};
 }
 export function finishingChance({distance,power=0,ownGoal=false,shotType='normal',finishBoost=0}){
@@ -56,10 +57,38 @@ export class Game {
  captureFrame(){const s=this.state;return {at:s.elapsed,players:s.players.map(p=>({id:p.id,team:p.team,name:p.name,character:p.character,x:p.x,y:p.y,angle:p.angle,step:p.step,shotsTaken:p.shotsTaken,ultraCharge:p.ultraCharge,chargingUltra:p.chargingUltra,shotType:p.shotType,charge:p.charge,charging:p.charging,shotPowerBonus:p.shotPowerBonus,receiptPowerBonus:p.receiptPowerBonus,shotPower:p.shotPower,shotPowerLeft:p.shotPowerLeft,shotWindup:p.shotWindup?{...p.shotWindup}:null,dribble:p.dribble,invincible:p.invincible,aura:p.aura,awakened:p.awakened,stun:p.stun,stealth:p.stealth,leap:p.leap,butterflyWings:p.butterflyWings,ability:p.character==='butterflydancer'?{wingsLeft:p.ability?.wingsLeft||0}:undefined,motion:p.motion?{...p.motion}:null})),ball:{...s.ball},keepers:s.keepers.map(k=>({...k}))};}
  getState(){return this.state;}
  exportState(){const copy=JSON.parse(JSON.stringify(this.state,(k,v)=>typeof v==='function'?undefined:v));if((this.state.phase==='celebrate'||this.state.phase==='replay')&&!this.replayExported){copy.replay=this.goalReplay;this.replayExported=true;}return copy;}
- importState(s){if(!s||!Array.isArray(s.players)||!s.players.length||!s.ball||!Number.isFinite(s.time))return;if(s.replay)this.goalReplay=s.replay;this.state=s;for(const p of s.players){this.inputs[p.id]||={keys:{},aim:p.aim,shootHeld:false};this.pending[p.id]||=[];}this.localTeam=this.localPlayer().team;this.options.onState?.(this.state);if(s.phase==='ended'&&!this.ended){this.ended=true;this.options.onEnd?.({score:s.score,players:s.players});}}
+ validSnapshot(s){return !!s&&Array.isArray(s.players)&&s.players.length>0&&!!s.ball&&Number.isFinite(s.time);}
+ receiveState(s,acknowledge){
+  if(!this.validSnapshot(s)){acknowledge?.();return false;}
+  if(!this.running||s.phase==='ended'){this.pendingNetworkState=null;this.importState(s);acknowledge?.();return false;}
+  // A burst or a slow browser costs one HUD import, not a backlog of old frames.
+  const replay=s.replay||this.pendingNetworkState?.state.replay;
+  this.pendingNetworkState={state:replay&&!s.replay?{...s,replay}:s,acknowledge};return false;
+ }
+ importState(s){if(!this.validSnapshot(s))return;const now=performance.now(),before=this.guestView(now),samePlay=this.snapshotAt!==undefined&&this.state.phase==='play'&&s.phase==='play'&&this.state.kickoff?.team===s.kickoff?.team;
+  this.guestFrom=this.options.mode==='guest'&&samePlay?before:null;this.guestBlendSeconds=clamp((now-(this.snapshotAt??now))/1000,1/60,.12);this.snapshotAt=now;
+  if(s.replay)this.goalReplay=s.replay;this.state=s;for(const p of s.players){this.inputs[p.id]||={keys:{},aim:p.aim,shootHeld:false};this.pending[p.id]||=[];}this.localTeam=this.localPlayer().team;this.options.onState?.(this.state);if(s.phase==='ended'&&!this.ended){this.ended=true;this.options.onEnd?.({score:s.score,players:s.players});}}
+ guestView(now=performance.now()){
+  const s=this.state;if(this.options.mode!=='guest'||this.snapshotAt===undefined)return s;
+  const age=Math.max(0,(now-this.snapshotAt)/1000);
+  if(s.phase!=='play')return {...s,phaseTime:Math.max(0,s.phaseTime-age)};
+  const from=this.guestFrom;if(!from)return s;
+  const t=clamp(age/this.guestBlendSeconds,0,1);
+  const blend=(a,b,teleport=true)=>{if(!a||teleport&&Math.hypot(a.x-b.x,a.y-b.y)>250)return b;const result={...b};for(const key of ['x','y','z','step'])if(Number.isFinite(a[key])&&Number.isFinite(b[key]))result[key]=a[key]+(b[key]-a[key])*t;if(Number.isFinite(a.angle)&&Number.isFinite(b.angle))result.angle=a.angle+Math.atan2(Math.sin(b.angle-a.angle),Math.cos(b.angle-a.angle))*t;return result;};
+  const players=s.players.map(p=>blend(from.players.find(q=>q.id===p.id),p)),keepers=s.keepers.map(k=>blend(from.keepers?.find(q=>q.id===k.id),k));
+  let ball=from.ball.owner===s.ball.owner?blend(from.ball,s.ball,false):{...s.ball};
+  const owner=players.find(p=>p.id===s.ball.owner)||keepers.find(k=>k.id===s.ball.owner),actual=s.players.find(p=>p.id===s.ball.owner)||s.keepers.find(k=>k.id===s.ball.owner);
+  if(owner&&actual)ball={...ball,x:owner.x+(s.ball.x-actual.x),y:owner.y+(s.ball.y-actual.y)};
+  return {...s,players,keepers,ball};
+ }
  start(){if(this.running)return;this.running=true;this.bind();this.observeCanvas();this.last=performance.now();const loop=(now)=>{if(!this.running)return;this.frameStep(now);if(this.running)this.frame=requestAnimationFrame(loop);};this.frame=requestAnimationFrame(loop);}
- frameStep(now){const elapsed=Math.min(.5,Math.max(0,(now-this.last)/1000));this.last=now;this.flushAimInput?.(now);if(this.options.mode!=='guest'){let remaining=elapsed;while(remaining>1e-9){const dt=Math.min(1/30,remaining);this.update(dt);remaining-=dt;}}this.render();this.hud+=elapsed;if(this.hud>=1/15){this.hud%=1/15;if(this.options.mode!=='guest')this.options.onState?.(this.state);}}
- stop(){this.suspendControls?.();this.running=false;if(this.frame!==null)cancelAnimationFrame(this.frame);this.frame=null;this.canvasObserver?.disconnect();this.canvasObserver=null;for(const [el,key,fn] of this.handlers)el.removeEventListener(key,fn);this.handlers=[];}
+ frameStep(now){const elapsed=Math.min(.5,Math.max(0,(now-this.last)/1000));this.last=now;this.flushAimInput?.(now);
+  if(this.options.mode==='guest'){const pending=this.pendingNetworkState;this.pendingNetworkState=null;if(pending){this.importState(pending.state);pending.acknowledge?.();}}
+  else{let remaining=elapsed;while(remaining>1e-9){const dt=Math.min(1/30,remaining);this.update(dt);remaining-=dt;}}
+  const renderStarted=performance.now();this.render();this.trackRenderCost(performance.now()-renderStarted,elapsed);
+  this.hud+=elapsed;if(this.hud>=1/15){this.hud%=1/15;if(this.options.mode!=='guest')this.options.onState?.(this.state);}}
+ trackRenderCost(milliseconds,frameSeconds=0){if(!this.canvas||this.canvas.ownerDocument?.hidden)return;this.renderQuality??=1;this.slowRenderCount=milliseconds>18||frameSeconds>.05?(this.slowRenderCount||0)+1:Math.max(0,(this.slowRenderCount||0)-1);if(this.slowRenderCount>=8&&this.renderQuality>.5){this.renderQuality=Math.max(.5,this.renderQuality-.25);this.slowRenderCount=0;}}
+ stop(){this.suspendControls?.();this.pendingNetworkState=null;this.running=false;if(this.frame!==null)cancelAnimationFrame(this.frame);this.frame=null;this.canvasObserver?.disconnect();this.canvasObserver=null;for(const [el,key,fn] of this.handlers)el.removeEventListener(key,fn);this.handlers=[];}
  observeCanvas(){this.canvasBounds=null;const invalidate=()=>{this.canvasBounds=null;};if(typeof ResizeObserver!=='undefined'&&this.canvas){this.canvasObserver?.disconnect();this.canvasObserver=new ResizeObserver(invalidate);this.canvasObserver.observe(this.canvas);}if(typeof window!=='undefined'){for(const key of ['resize','scroll']){window.addEventListener(key,invalidate);this.handlers.push([window,key,invalidate]);}}}
  canvasMetrics(force=false){if(force||!this.canvasBounds){const rect=this.canvas?.getBoundingClientRect?.()||{left:0,top:0,width:WORLD.width,height:WORLD.height};this.canvasBounds={left:rect.left||0,top:rect.top||0,width:rect.width,height:rect.height};}return this.canvasBounds;}
  setInput(playerId,input){const p=this.state.players.find(p=>p.id===playerId);if(!p||!input)return;const old=this.inputs[playerId]||{keys:{},aim:p.aim,shootHeld:false};this.pending[playerId]||=[];this.inputs[playerId]={...old,...input,keys:{...(input.keys||old.keys)},aim:input.aim||old.aim};if(input.cancelShot){p.charging=false;p.chargingUltra=false;p.charge=0;p.maxHold=0;this.inputs[playerId].shootHeld=false;this.inputs[playerId].ultraShot=false;this.pending[playerId]=this.pending[playerId].filter(([kind])=>kind!=='shoot');}else if(input.shootRelease&&old.shootHeld)this.pending[playerId].push(['shoot',!!old.ultraShot]);if(input.action)this.pending[playerId].push(['action']);if(input.pass)this.pending[playerId].push(['pass']);if(input.skill)this.pending[playerId].push(['skill',input.skill]);if(input.awaken)this.pending[playerId].push(['awaken']);if(input.skipReplay)this.skipReplay(playerId);}
@@ -151,7 +180,7 @@ export class Game {
  goal(team){const s=this.state;if(s.phase!=='play')return;s.score[team]++;const last=s.players.find(p=>p.id===s.ball.lastTouch),scorer=last?.team===team?last:s.players.find(p=>p.team===team);scorer.stats.goals++;s.scorer=scorer.id;s.scorerTeam=team;s.phase='celebrate';s.phaseTime=5;s.conceded=1-team;s.keepers[1-team].saveStreak=0;s.kickoff=null;
   const final=this.captureFrame(),shot=this.shotStartedAt!==null?this.shotReplay.filter(frame=>frame.at>=this.shotStartedAt):[];
   this.goalReplay=shot.length?shot.slice():[this.history.at(-1)||final];this.goalReplay.push(final);
-  const duration=final.at-this.goalReplay[0].at;s.replayDuration=clamp(duration,.45,3);this.replayExported=false;this.tasks=[];this.effect('goal',s.ball.x,s.ball.y,COLORS[team],3);this.options.onEvent?.({type:'goal',team,scorer:scorer.name});
+  const duration=final.at-this.goalReplay[0].at;s.replayDuration=clamp(duration,.45,3)+REPLAY_EXTRA_SECONDS;this.replayExported=false;this.tasks=[];this.effect('goal',s.ball.x,s.ball.y,COLORS[team],3);this.options.onEvent?.({type:'goal',team,scorer:scorer.name});
  }
 
  endMatch(){if(this.state.phase==='ended')return;this.state.phase='ended';this.options.onEnd?.({score:this.state.score,players:this.state.players});this.options.onEvent?.({type:'end'});}
@@ -238,8 +267,8 @@ export class Game {
   }
   const friction=b.noFrictionFor>0?1:Math.exp(-(b.z>0?.08:.42)*motionDt);b.vx*=friction;b.vy*=friction;if(Math.hypot(b.vx,b.vy)<7){b.vx=b.vy=0;}if(b.z>10)this.effect('air',b.x,b.y,b.color||'#f9e8a1',.18);
  }
- cutsceneView(progressOverride){
-  const s=this.state,scene=s.cutscene,spec=scene?.choreography;
+ cutsceneView(progressOverride,s=this.state){
+  const scene=s.cutscene,spec=scene?.choreography;
   if(!spec?.origins)return s;
   const originals=spec.origins,view={...s,players:s.players.map(p=>({...p})),keepers:s.keepers.map(k=>({...k})),ball:{...originals.ball}};
   const actor=view.players.find(p=>p.id===spec.actorId),start=originals.players.find(p=>p.id===spec.actorId);
@@ -285,9 +314,9 @@ export class Game {
   }
   return view;
  }
- replayView(){const frames=this.goalReplay,s=this.state;if(!frames.length)return s;const first=frames[0],last=frames.at(-1),start=first.at||0,end=last.at??start,time=start+(end-start)*clamp(1-s.phaseTime/(s.replayDuration||1),0,1);let index=0;while(index<frames.length-2&&(frames[index+1].at??start)<time)index++;const a=frames[index],b=frames[Math.min(index+1,frames.length-1)],span=(b.at??start)-(a.at??start),t=span>0?clamp((time-(a.at??start))/span,0,1):0;const blend=(left,right)=>{const result={...left};for(const key of ['x','y','z','step'])if(Number.isFinite(left[key])&&Number.isFinite(right?.[key]))result[key]=left[key]+(right[key]-left[key])*t;return result;};return {...a,players:a.players.map(p=>blend(p,b.players.find(q=>q.id===p.id))),keepers:a.keepers.map(p=>blend(p,b.keepers.find(q=>q.id===p.id))),ball:blend(a.ball,b.ball)};}
- render(){const c=this.ctx;if(!c)return;const canvas=this.canvas,r=this.canvasMetrics();if(!r.width||!r.height)return;const resolution=canvasResolution(r.width,r.height,globalThis.devicePixelRatio||1);if(canvas.width!==resolution.width||canvas.height!==resolution.height){canvas.width=resolution.width;canvas.height=resolution.height;}const viewport=fitViewport(canvas.width,canvas.height);this.displayScale=fitViewport(r.width,r.height).scale;c.setTransform(1,0,0,1,0,0);c.fillStyle='#101d24';c.fillRect(0,0,canvas.width,canvas.height);c.setTransform(viewport.scale,0,0,viewport.scale,viewport.x,viewport.y);c.save();c.beginPath();c.rect(0,0,WORLD.width,WORLD.height);c.clip();
-  const s=this.state,view=s.phase==='replay'&&this.goalReplay.length?this.replayView():s.phase==='cutscene'?this.cutsceneView():s;
+ replayView(s=this.state){const frames=this.goalReplay;if(!frames.length)return s;const first=frames[0],last=frames.at(-1),start=first.at||0,end=last.at??start,time=start+(end-start)*clamp(1-s.phaseTime/(s.replayDuration||1),0,1);let index=0;while(index<frames.length-2&&(frames[index+1].at??start)<time)index++;const a=frames[index],b=frames[Math.min(index+1,frames.length-1)],span=(b.at??start)-(a.at??start),t=span>0?clamp((time-(a.at??start))/span,0,1):0;const blend=(left,right)=>{const result={...left};for(const key of ['x','y','z','step'])if(Number.isFinite(left[key])&&Number.isFinite(right?.[key]))result[key]=left[key]+(right[key]-left[key])*t;return result;};return {...a,players:a.players.map(p=>blend(p,b.players.find(q=>q.id===p.id))),keepers:a.keepers.map(p=>blend(p,b.keepers.find(q=>q.id===p.id))),ball:blend(a.ball,b.ball)};}
+ render(){const c=this.ctx;if(!c)return;const canvas=this.canvas,r=this.canvasMetrics();if(!r.width||!r.height)return;const resolution=canvasResolution(r.width,r.height,globalThis.devicePixelRatio||1,this.renderQuality||1);if(canvas.width!==resolution.width||canvas.height!==resolution.height){canvas.width=resolution.width;canvas.height=resolution.height;}const viewport=fitViewport(canvas.width,canvas.height);this.displayScale=fitViewport(r.width,r.height).scale;c.setTransform(1,0,0,1,0,0);c.fillStyle='#101d24';c.fillRect(0,0,canvas.width,canvas.height);c.setTransform(viewport.scale,0,0,viewport.scale,viewport.x,viewport.y);c.save();c.beginPath();c.rect(0,0,WORLD.width,WORLD.height);c.clip();
+  const s=this.guestView(),view=s.phase==='replay'&&this.goalReplay.length?this.replayView(s):s.phase==='cutscene'?this.cutsceneView(undefined,s):s;
   c.save();if(s.phase==='celebrate'){const p=s.players.find(p=>p.id===s.scorer)||s.players[0],z=1.35+Math.sin((5-s.phaseTime)*.8)*.1;c.translate(MID.x,MID.y);c.scale(z,z);c.translate(-p.x,-p.y);}else if(s.phase==='cutscene'&&s.cutscene?.choreography?.kind==='magnus-freeze'){const actor=view.players.find(p=>p.id===s.cutscene.choreography.actorId);if(actor){c.translate(MID.x,MID.y);c.scale(1.9,1.9);c.translate(-actor.x,-actor.y);}}
   this.drawCachedPitch(c,viewport.scale);for(const k of view.keepers||s.keepers)this.drawPlayer(c,{...k,angle:k.team?Math.PI:0,name:'KEEPER',keeper:true,character:'none'});for(const p of view.players||s.players)this.drawPlayer(c,p);this.drawBall(c,view.ball||s.ball);
   if(s.phase==='play'&&this.isCursorLocked()){const {x,y}=this.localInput.aim,scale=Math.max(.3,this.displayScale||1);c.save();c.strokeStyle='#ffffff';c.lineWidth=1.5/scale;c.beginPath();c.arc(x,y,7/scale,0,TAU);c.moveTo(x-11/scale,y);c.lineTo(x+11/scale,y);c.moveTo(x,y-11/scale);c.lineTo(x,y+11/scale);c.stroke();c.restore();}

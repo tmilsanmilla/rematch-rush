@@ -108,7 +108,7 @@ test('a repeat dribble is ready before the next slide and can counter it without
   assert.equal(attacker.motion,null,'a countered slide cannot keep stealing afterward');
 });
 
-test('scoring replay includes only the shot and uses the same short duration for both peers', () => {
+test('scoring replay includes only the shot with three extra playback seconds for both peers', () => {
   const game=match();advance(game,8);
   const p=game.state.players[0];Object.assign(p,{x:700,y:350,aim:{x:1130,y:285}});
   game.setOwner(p);game.state.keepers[1].y=870;
@@ -119,7 +119,7 @@ test('scoring replay includes only the shot and uses the same short duration for
   assert.equal(game.goalReplay[0].at,shotStart);
   assert.ok(game.goalReplay.at(-1).at-game.goalReplay[0].at<=3);
   assert.ok(game.goalReplay.at(-1).ball.x>1130);
-  assert.ok(game.state.replayDuration>=.45&&game.state.replayDuration<=3);
+  assert.ok(game.state.replayDuration>=3.45&&game.state.replayDuration<=6);
   const guest=new Game(null,{mode:'guest',localTeam:1});guest.importState(game.exportState());
   assert.deepEqual(guest.goalReplay,game.goalReplay);
   assert.equal(guest.state.replayDuration,game.state.replayDuration);

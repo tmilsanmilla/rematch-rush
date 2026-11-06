@@ -25,6 +25,9 @@ const OPEN_TIMEOUT = 15000;
 const CONNECT_TIMEOUT = 22000;
 const HEARTBEAT_INTERVAL = 2500;
 const HEARTBEAT_TIMEOUT = 20000;
+// PeerJS's bufferSize excludes bytes already queued by the native data channel.
+const MAX_STATE_BUFFER_BYTES = 64 * 1024;
+const MAX_IN_FLIGHT_STATES = 2;
 let peerLibraryPromise;
 
 function loadPeerLibrary() {
@@ -398,11 +401,27 @@ export class OnlineSession {
     const sequence = ++this._stateSequence;
     let sent = false;
     for (const record of this._connections.values()) {
-      // Congestion on one connection cannot starve another teammate. The final
-      // whistle and replay still arrive even when ordinary snapshots are skipped.
-      if (record.connection.bufferSize > 8 && !state.replay && state.phase !== 'ended') continue;
-      sent = this._sendTo(record.connection, { type: 'state', roundId: this.roundId, sequence, gameFormat: this.gameFormat, state }) || sent;
+      sent = this._sendStateTo(record, { type: 'state', roundId: this.roundId, sequence, gameFormat: this.gameFormat, state }) || sent;
     }
+    return sent;
+  }
+
+  _sendStateTo(record, message) {
+    const critical = !!message.state.replay || message.state.phase === 'ended';
+    const connection = record.connection;
+    const congested = connection.bufferSize > 0 || connection.dataChannel?.bufferedAmount > MAX_STATE_BUFFER_BYTES;
+    if (!critical && (congested || (record.stateAcks && record.inFlightStates.size >= MAX_IN_FLIGHT_STATES))) {
+      // Replace the obsolete unsent frame; never make a slow peer play a queue
+      // of old positions. Other peers retain their independent send windows.
+      record.pendingState = message;
+      return false;
+    }
+    record.pendingState = null;
+    // Install before send: a synchronous receiver may acknowledge immediately.
+    record.lastSentState = message.sequence;
+    if (record.stateAcks) record.inFlightStates.add(message.sequence);
+    const sent = this._sendTo(connection, message);
+    if (!sent) record.inFlightStates.delete(message.sequence);
     return sent;
   }
 
@@ -468,7 +487,10 @@ export class OnlineSession {
     this._rematchVotes = new Set();
     this._inputSequence = this._stateSequence = 0;
     this._lastInputSequence = this._lastStateSequence = -1;
-    for (const record of this._connections?.values() || []) record.lastInputSequence = -1;
+    for (const record of this._connections?.values() || []) {
+      record.lastInputSequence = -1; record.lastSentState = -1;
+      record.inFlightStates = new Set(); record.pendingState = null;
+    }
   }
 
   _notifyRematchStatus() {
@@ -550,7 +572,7 @@ export class OnlineSession {
 
   _attachConnection(connection) {
     const generation = this._generation;
-    const record = { connection, playerId: null, profile: null, lastReceived: Date.now(), lastInputSequence: -1 };
+    const record = { connection, playerId: null, profile: null, lastReceived: Date.now(), lastInputSequence: -1, stateAcks: false, inFlightStates: new Set(), pendingState: null, lastSentState: -1 };
     this._connections.set(connection, record);
     this.connection ||= connection; // Compatibility for the two-player app/tests.
     const current = () => !this._closed && generation === this._generation && this._connections.get(connection) === record;
@@ -559,7 +581,7 @@ export class OnlineSession {
       if (!current()) return;
       record.lastReceived = Date.now();
       this._ensureHeartbeat();
-      if (this.role === 'guest') this._sendTo(connection, { type: 'hello', profile: this.localProfile, queueToken: this._queueAdmissionToken });
+      if (this.role === 'guest') this._sendTo(connection, { type: 'hello', profile: this.localProfile, queueToken: this._queueAdmissionToken, stateAcks: true });
     });
     connection.on('data', data => { if (current()) this._receive(data, connection); });
     connection.on('close', () => { if (current()) this._dropConnection(connection, new Error('A player disconnected. Create or join a new room to play again.')); });
@@ -581,6 +603,7 @@ export class OnlineSession {
       const playerId = humanSlots(this.gameFormat, this.roomConfig).find(id => !this.players.some(player => player.id === id));
       if (playerId === undefined) { this._rejectConnection(connection, 'This room is full.'); return; }
       record.playerId = playerId;
+      record.stateAcks = data.stateAcks === true;
       record.profile = profile(data.profile.username, data.profile.character);
       clearTimeout(record.timer);
       this.peers.set(playerId, connection);
@@ -595,6 +618,7 @@ export class OnlineSession {
       clearTimeout(record.timer);
       clearTimeout(this._connectionTimer);
       record.playerId = 0;
+      record.stateAcks = data.stateAcks === true;
       this.peers.set(0, connection);
       const pending = this._pendingJoin;
       this._pendingJoin = null;
@@ -603,6 +627,12 @@ export class OnlineSession {
       return;
     }
     if (!this.connected || !this._roundStarted || data.roundId !== this.roundId) return;
+    if (data.type === 'state-ack' && this.role === 'host' && record.stateAcks) {
+      if (!Number.isSafeInteger(data.sequence) || data.sequence < 0 || data.sequence > record.lastSentState) return;
+      for (const sequence of record.inFlightStates) if (sequence <= data.sequence) record.inFlightStates.delete(sequence);
+      if (record.pendingState) this._sendStateTo(record, record.pendingState);
+      return;
+    }
     if (data.type === 'rematch' && this.role === 'host') {
       if (data.ready !== true || record.playerId === null || this._rematchVotes.has(record.playerId)) return;
       this._rematchVotes.add(record.playerId);
@@ -633,7 +663,16 @@ export class OnlineSession {
       this.onInput(clean, record.playerId);
     } else if (data.type === 'state' && this.role === 'guest' && data.sequence > this._lastStateSequence && data.state && typeof data.state === 'object') {
       this._lastStateSequence = data.sequence;
-      this.onState(data.state);
+      const generation = this._generation;
+      let acknowledged = false;
+      const acknowledge = () => {
+        if (acknowledged || this._closed || generation !== this._generation || data.roundId !== this.roundId) return;
+        acknowledged = true;
+        if (record.stateAcks) this._sendTo(connection, { type: 'state-ack', roundId: data.roundId, sequence: data.sequence });
+      };
+      // The app defers acknowledgement until its render loop consumes the
+      // snapshot. Legacy callbacks keep their immediate delivery semantics.
+      if (this.onState(data.state, acknowledge) !== false) acknowledge();
     }
   }
 
@@ -655,7 +694,7 @@ export class OnlineSession {
     this._startingLobby = ready;
     for (const record of this._connections.values()) {
       if (record.playerId === null) continue;
-      this._sendTo(record.connection, { type: 'welcome', ...lobby, localPlayerId: record.playerId, localTeam: record.playerId % 2, roundId: this.roundId, ready });
+      this._sendTo(record.connection, { type: 'welcome', ...lobby, localPlayerId: record.playerId, localTeam: record.playerId % 2, roundId: this.roundId, stateAcks: true, ready });
     }
     this._startingLobby = false;
     if (this._closed) return;

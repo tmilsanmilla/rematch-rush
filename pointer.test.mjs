@@ -54,7 +54,8 @@ test('1,000 mouse moves update aim immediately with at most thirty aim packets a
  }finally{f.close();}
 });
 
-test('mouse press and release each refresh canvas layout and release toward the latest point without a move event',()=>{
+test('mouse press and release each refresh canvas layout and release toward the latest point without a move event',t=>{
+ t.mock.method(Math,'random',()=>0); // Test pointer direction independently of randomized shot dispersion.
  const f=fixture();try{
   const p=own(f);f.canvas.dispatchEvent(event('pointermove',{clientX:500,clientY:200}));assert.equal(f.measurements,1);
   f.resize({left:100,top:80,width:600,height:350});

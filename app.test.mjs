@@ -44,6 +44,7 @@ function appHarness() {
       stop() { this.running = false; }
       getState() { return this.state; }
       exportState() { return this.state; }
+      receiveState(state, acknowledge) { this.received = {state, acknowledge}; return false; }
       setInput() {}
     },
     window: { addEventListener(type, listener) { windowListeners.set(type, listener); }, scrollTo() {}, dispatchEvent() { throw new Error('UI actions must use the game API.'); } },
@@ -280,6 +281,15 @@ test('an incoming rematch request is visible before the local player consents', 
   app.updateRematchStatus({localReady: false, remoteReady: true});
   assert.equal(app.node('#rematch-button').disabled, false);
   assert.match(app.node('#rematch-status').textContent, /Your rival wants a rematch/);
+});
+
+test('online UI defers guest snapshots to the display loop and ignores a replaced session',()=>{
+  const app=appHarness(),session=app.newOnlineSession(),calls=[];session.role='guest';
+  app.setGame({receiveState(state,acknowledge){calls.push({state,acknowledge});return false;}});
+  const packet=state(),acknowledge=()=>{};
+  assert.equal(session.options.onState(packet,acknowledge),false);
+  assert.equal(calls.length,1);assert.equal(calls[0].state,packet);assert.equal(calls[0].acknowledge,acknowledge);
+  app.newOnlineSession();session.options.onState(packet,acknowledge);assert.equal(calls.length,1);
 });
 
 test('only the credited scorer sees the skip button and its click uses the validated game API', () => {

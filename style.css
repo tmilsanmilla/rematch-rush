@@ -273,3 +273,6 @@
 .game-actions .cursor-lock-button[aria-pressed="true"]{color:#f4d584;border-color:#f4d58499;background:#f4d58420}
 @media(max-width:520px){.game-actions .sound-button{display:none}}
 @media(pointer:coarse){.game-actions .cursor-lock-button:first-child{display:none}}
+
+/* Avoid re-blurring the moving canvas beneath HUD panels every frame. */
+.game-screen .match-scoreboard,.game-screen .player-hud{backdrop-filter:none;-webkit-backdrop-filter:none}

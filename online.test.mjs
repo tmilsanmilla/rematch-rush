@@ -223,6 +223,88 @@ test('the final whistle reaches a congested guest and permits rematch without an
   assert.equal(host.roundId, 2); assert.equal(guest.roundId, 2);
 });
 
+test('native WebRTC congestion is detected before PeerJS starts its much larger overflow queue', async t => {
+  const {host,guestEvents}=await connectedPair(t);
+  host.connection.dataChannel={bufferedAmount:128*1024};
+  assert.equal(host.connection.bufferSize,0);
+  for(let frame=0;frame<100;frame++)assert.equal(host.sendState({phase:'play',frame}),false);
+  await flush();assert.equal(guestEvents.states.length,0);
+  host.connection.dataChannel.bufferedAmount=0;
+  assert.equal(host.sendState({phase:'play',frame:100}),true);
+  await flush();assert.deepEqual(guestEvents.states,[{phase:'play',frame:100}]);
+});
+
+test('state backpressure never drops guest movement, shot release or skill input edges',async t=>{
+  const {host,guest,hostEvents}=await connectedPair(t);guest.onState=()=>false;
+  for(let i=0;i<50;i++)host.sendState({phase:'play',frame:i});
+  guest.sendInput({keys:{d:true},shootHeld:true});guest.sendInput({keys:{},shootRelease:true});guest.sendInput({skill:2});
+  await flush();assert.equal(hostEvents.inputs.length,3);
+  assert.equal(hostEvents.inputs[0].keys.d,true);assert.equal(hostEvents.inputs[1].shootRelease,true);assert.equal(hostEvents.inputs[2].skill,2);
+});
+
+test('legacy peers without negotiated snapshot ACKs remain playable',async t=>{
+  const {host,guest,guestEvents}=await connectedPair(t);
+  host._connections.get(host.connection).stateAcks=false;guest._connections.get(guest.connection).stateAcks=false;
+  for(let i=0;i<12;i++)host.sendState({phase:'play',frame:i});
+  await flush();assert.equal(guestEvents.states.length,12);
+});
+
+test('a slow receiver bounds in-flight work, replaces stale positions and still gets replay and full time',async t=>{
+  const {host,guest,network}=await connectedPair(t);const deliveries=[];
+  guest.onState=(state,acknowledge)=>{deliveries.push({state,acknowledge});return false;};
+  for(let frame=0;frame<100;frame++)host.sendState({phase:'play',frame});
+  await flush();assert.equal(deliveries.length,2);
+  const record=host._connections.get(host.connection);assert.equal(record.pendingState.state.frame,99);
+  const protocol=network.messages.find(({message})=>message.type==='state').message.protocol;
+  host._receive({protocol,type:'state-ack',roundId:1,sequence:100000});
+  assert.equal(record.inFlightStates.size,2,'an invented future ACK cannot release the send window');
+  deliveries[1].acknowledge();await flush();
+  assert.deepEqual(deliveries.map(d=>d.state.frame),[0,1,99]);
+  assert.equal(record.pendingState,null);assert.equal(record.inFlightStates.size,1);
+  host.sendState({phase:'play',frame:100});host.sendState({phase:'play',frame:101});
+  const replay=[{at:3},{at:4}];host.sendState({phase:'celebrate',replay});
+  host.sendState({phase:'ended',score:[1,0]});await flush();
+  assert.deepEqual(deliveries.at(-2).state.replay,replay);assert.equal(deliveries.at(-1).state.phase,'ended');
+  assert.equal(record.pendingState,null,'old play positions cannot follow the final whistle');
+});
+
+test('a slow team member cannot throttle healthy peers and round restart discards old pending snapshots',async t=>{
+  const {host,code,add,events,sessions}=await roomHarness(t,'standard-2v2');
+  for(let id=1;id<=3;id++)await add().join(code,`Player ${id}`,'none');await flush();
+  sessions[1].onState=()=>false;
+  for(let frame=0;frame<12;frame++){host.sendState({phase:'play',frame});await flush();}
+  assert.equal(events[2].states.length,12);assert.equal(events[3].states.length,12);
+  const slow=host._connections.get(host.peers.get(1));assert.equal(slow.inFlightStates.size,2);assert.equal(slow.pendingState.state.frame,11);
+  host._rematchReady=true;host.startRound();
+  assert.equal(slow.pendingState,null);assert.equal(slow.inFlightStates.size,0);
+  const oldAck=host._lastStateSequence;assert.equal(oldAck,-1);
+  host.sendState({phase:'play',newRound:true});await flush();
+  assert.equal(slow.inFlightStates.size,1);assert.equal(events[2].states.at(-1).frame,11,'old round guests cannot accept a new-round packet before its handshake');
+});
+
+test('queued 1v1 tolerates a two-FPS guest without queuing half a second of obsolete HUD updates',async t=>{
+  const {add,network}=queueHarness(t),first=add(),second=add();
+  await Promise.all([first.queue('First','ice'),second.queue('Second','ninja')]);await settleQueue();
+  const host=[first,second].find(s=>s.role==='host'),guest=[first,second].find(s=>s.role==='guest');
+  let hostRenders=0,guestRenders=0,imports=0;
+  const authoritative=new Game(null,{mode:'online',players:host.players,onState:state=>host.sendState(authoritative.exportState())});
+  const remote=new Game(null,{mode:'guest',players:guest.players,localPlayerId:guest.localPlayerId,onState:()=>imports++});
+  remote.running=true;authoritative.render=()=>hostRenders++;remote.render=()=>guestRenders++;
+  authoritative.state.kickoff=null;authoritative.setInput(0,{keys:{s:true}});
+  guest.onState=(state,acknowledge)=>remote.receiveState(state,acknowledge);
+  for(let frame=1;frame<=120;frame++){
+    authoritative.frameStep(frame*1000/60);await flush();
+    if(frame%30===0){remote.frameStep(frame*1000/60);await flush();}
+  }
+  assert.equal(hostRenders,120);assert.equal(guestRenders,4);assert.equal(imports,4);
+  assert.ok(network.messages.filter(({message})=>message.type==='state').length<=10);
+  assert.equal(remote.pendingNetworkState.state.elapsed,authoritative.state.elapsed,'the waiting snapshot is the latest, not a backlog');
+  remote.frameStep(2017);await flush();
+  assert.equal(remote.state.elapsed,authoritative.state.elapsed);assert.equal(remote.pendingNetworkState,null);
+  const ended={...authoritative.exportState(),phase:'ended'};host.sendState(ended);await flush();
+  assert.equal(remote.state.phase,'ended','full time does not wait for the guest to render again');
+});
+
 test('immediate app callbacks start both rounds before accepting the host next-match snapshot', async t => {
   const { host, guest, hostEvents, guestEvents, network } = await connectedPair(t);
   const startHostRematch = host.onRematchReady;

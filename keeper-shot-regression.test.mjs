@@ -84,6 +84,6 @@ test('the replay starts at the final shot release and excludes earlier possessio
  random(0,()=>game.kick(player,80,{angle:Math.atan2(-70,250)}));
  for(let i=0;i<400&&game.state.phase==='play';i++)game.update(.005);
  assert.equal(game.state.score[0],1);assert.ok(release>earlierPass);assert.equal(game.goalReplay[0].at,release);assert.ok(game.goalReplay.every(frame=>frame.at>=release));
- assert.ok(game.state.replayDuration<=3);assert.ok(game.state.replayDuration>=.45);
+ assert.ok(game.state.replayDuration<=6);assert.ok(game.state.replayDuration>=3.45);
  const guest=new Game(null,{mode:'guest'});guest.importState(game.exportState());assert.deepEqual(guest.goalReplay,game.goalReplay);assert.equal(guest.state.replayDuration,game.state.replayDuration);
 });
