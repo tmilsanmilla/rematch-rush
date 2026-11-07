@@ -75,7 +75,7 @@ export function initPixelAccountUI({
     expiryTimer = null;
   }
 
-  function render(text) {
+  function render(text, tone = 'status') {
     root.hidden = !available;
     signIn.hidden = authenticated;
     signOut.hidden = !authenticated;
@@ -88,7 +88,12 @@ export function initPixelAccountUI({
     if (createPanel) createPanel.hidden = !canCreate || !confirmingCreate;
     if (confirmCreate) confirmCreate.disabled = busy;
     if (cancelCreate) cancelCreate.disabled = busy;
-    if (text !== undefined) message.textContent = text;
+    if (text !== undefined) {
+      message.textContent = text;
+      message.setAttribute('data-tone', tone);
+      message.setAttribute('role', tone === 'error' ? 'alert' : 'status');
+      message.setAttribute('aria-live', tone === 'error' ? 'assertive' : 'polite');
+    }
     root.setAttribute('aria-busy', busy ? 'true' : 'false');
   }
 
@@ -145,7 +150,7 @@ export function initPixelAccountUI({
       } else {
         if (discoveryReady) { const session = sessionVersion; expiryTimer = setTimer(() => { if (!disposed && session === sessionVersion) { discoveryReady = false; confirmingCreate = false; render('Identity confirmation expired. Identify with Pixel Pulse again.'); } }, discoveryExpiry - now()); }
         render(noticeText || (result.authenticated === true ? 'Continue again to confirm your current Rematch session.' :
-          firstConnections && ongoingEnrollment ? discoveryReady ? 'Identity confirmed. Review Create a separate Rematch profile; your device progress stays separate.' : 'Identify with Pixel Pulse first, then explicitly create a separate Rematch profile.' : firstConnections && hasCreateControls ? 'Return to your linked account, or create a separate Rematch profile with Pixel Pulse.' : 'Return to an already linked account. New connections are unavailable.'));
+          firstConnections && ongoingEnrollment ? discoveryReady ? 'Identity confirmed. Review Create a separate Rematch profile; your device progress stays separate.' : 'Identify with Pixel Pulse first, then explicitly create a separate Rematch profile.' : firstConnections && hasCreateControls ? 'Return to your linked account, or create a separate Rematch profile with Pixel Pulse.' : 'Return to an already linked account. New connections are unavailable.'), noticeText && ['refused', 'uncertain'].includes(notice) ? 'error' : 'status');
       }
     } catch {
       if (!disposed && current === generation) {
@@ -169,7 +174,7 @@ export function initPixelAccountUI({
       location.assign(result.url);
       return true;
     } catch {
-      if (!disposed && current === generation) render('Pixel sign-in is unavailable right now. Guest play still works.');
+      if (!disposed && current === generation) render('Pixel sign-in is unavailable right now. Guest play still works.', 'error');
       return false;
     } finally {
       if (!disposed && current === generation) { busy = false; render(); }
@@ -184,7 +189,7 @@ export function initPixelAccountUI({
       if (disposed || current !== generation) return false;
       if (!isPixelAuthorizationUrl(result.url, { intent: 'discover' })) throw new Error('PIXEL_HANDOFF_INVALID');
       location.assign(result.url); return true;
-    } catch { if (!disposed && current === generation) render('Identity confirmation is unavailable. Guest play still works.'); return false; }
+    } catch { if (!disposed && current === generation) render('Identity confirmation is unavailable. Guest play still works.', 'error'); return false; }
     finally { if (!disposed && current === generation) { busy = false; render(); } }
   }
 
@@ -214,7 +219,7 @@ export function initPixelAccountUI({
       location.assign(result.url);
       return true;
     } catch {
-      if (!disposed && current === generation) render('Profile creation is unavailable right now. Guest play still works.');
+      if (!disposed && current === generation) render('Profile creation is unavailable right now. Guest play still works.', 'error');
       return false;
     } finally {
       if (!disposed && current === generation) { busy = false; render(); }
@@ -236,7 +241,7 @@ export function initPixelAccountUI({
       render('Signed out of Rematch. Your Pixel Pulse sign-in and device player profile are unchanged.');
       return true;
     } catch {
-      if (!disposed && current === generation) render('Could not confirm Rematch sign-out. Please try again.');
+      if (!disposed && current === generation) render('Could not confirm Rematch sign-out. Please try again.', 'error');
       return false;
     } finally {
       if (!disposed && current === generation) { busy = false; render(); }

@@ -245,7 +245,7 @@ test('the account markup hides separate-profile confirmation by default and has 
   assert.match(account, /current Pixel password only on Pixel Pulse/);
   assert.doesNotMatch(account, /<form|<input|data-action|id="profile-name"|type="password"/);
   assert.match(html, /id="profile-name">Player<\/span>/);
-  assert.match(html, /type="module" src="\.\/pixel-account\.js\?v=3"/);
+  assert.match(html, /type="module" src="\.\/pixel-account\.js\?v=4"/);
   const css = readFileSync(new URL('./style.css', import.meta.url), 'utf8');
   assert.match(css, /\.site-header\[hidden\]\+\.pixel-account\{display:none\}/);
 });
@@ -385,4 +385,23 @@ test('malformed/expired/overlong discovery metadata never exposes Create',async(
 test('ordinary discovery and fresh enrollment URL purposes cannot be downgraded or swapped',()=>{
  assert.equal(isPixelAuthorizationUrl(ongoingUrl(true),{intent:'discover'}),true);assert.equal(isPixelAuthorizationUrl(ongoingUrl(),{intent:'create'}),true);
  assert.equal(isPixelAuthorizationUrl(ongoingUrl(true)),false);assert.equal(isPixelAuthorizationUrl(ongoingUrl(true),{intent:'create'}),false);assert.equal(isPixelAuthorizationUrl(ongoingUrl(),{intent:'discover'}),false);
+});
+
+
+test('account failures are explicitly marked red/alert and finally-render preserves the error tone',async()=>{
+ const app=harness([anonymous,new Error('offline')]); await app.ui.ready;
+ assert.equal(app.node('pixel-account-status').attributes.get('data-tone'),'status');
+ assert.equal(await app.ui.startSignIn(),false);
+ const status=app.node('pixel-account-status');assert.equal(status.attributes.get('data-tone'),'error');assert.equal(status.attributes.get('role'),'alert');assert.equal(status.attributes.get('aria-live'),'assertive');
+ assert.match(status.textContent,/unavailable/);assert.equal(app.node('pixel-account-sign-in').disabled,false);assert.equal(app.node('profile-name').textContent,'Guest striker');
+ assert.equal(app.requests.length,2);assert.equal(app.redirects.length,0);app.ui.destroy();
+});
+
+test('refused/uncertain returns are errors while discovery and normal result messages stay status text',async()=>{
+ for(const notice of ['refused','uncertain','discovered','created','returned']){
+  const app=harness([anonymous],{search:'?pixel='+notice});await app.ui.ready;
+  assert.equal(app.node('pixel-account-status').attributes.get('data-tone'),['refused','uncertain'].includes(notice)?'error':'status');app.ui.destroy();
+ }
+ const app=harness([signedIn,{ok:true,authenticated:false}]);await app.ui.ready;assert.equal(await app.ui.endSession(),true);
+ assert.equal(app.node('pixel-account-status').attributes.get('data-tone'),'status');assert.equal(app.node('pixel-account-status').attributes.get('role'),'status');app.ui.destroy();
 });
