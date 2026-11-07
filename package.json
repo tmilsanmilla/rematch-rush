@@ -8,6 +8,11 @@
   },
   "scripts": {
     "build": "node build.mjs",
-    "test": "node --test *.test.mjs"
+    "test": "node --test *.test.mjs",
+    "test:pixel": "node --test pixel-*.test.mjs"
+  },
+  "dependencies": {
+    "jose": "6.2.12",
+    "pg": "8.23.1"
   }
 }

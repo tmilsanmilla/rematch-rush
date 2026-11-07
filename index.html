@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f5f3ea" />
   <meta name="description" content="Own the pitch. Find your style. Character-powered football with 1v1, 2v2 and co-op bot matches." />
   <title>Rematch Rush — Own the pitch.</title>
-  <link rel="stylesheet" href="./style.css?v=15" />
+  <link rel="stylesheet" href="./style.css?v=16" />
 </head>
 <body>
   <svg class="svg-defs" aria-hidden="true"><defs>
@@ -28,6 +28,18 @@
       <nav aria-label="Main navigation"><button class="nav-link active" data-action="home" id="nav-play">Play <span>01</span></button><button class="nav-link" data-action="characters" id="nav-characters">Characters <span>02</span></button><button class="nav-link" data-action="help">How to play <span>↗</span></button></nav>
       <div class="header-actions"><button class="icon-button sound-button" data-action="sound" aria-label="Toggle sound"><svg><use href="#icon-sound"/></svg></button><span class="header-divider"></span><button class="profile-button" data-action="profile"><span class="profile-dot"></span><span id="profile-name">Player</span><svg><use href="#icon-edit"/></svg></button></div>
     </header>
+    <section class="pixel-account" id="pixel-account" hidden aria-label="Pixel Pulse account" aria-busy="false">
+      <div class="pixel-account-copy"><span class="pixel-account-label">PIXEL PULSE</span><strong id="pixel-account-name" hidden></strong><p id="pixel-account-status" role="status" aria-live="polite"></p></div>
+      <button class="pixel-account-button" id="pixel-account-sign-in" type="button">Continue with Pixel Pulse <span aria-hidden="true">↗</span></button>
+      <button class="pixel-account-button" id="pixel-account-discover" type="button" hidden>Identify with Pixel Pulse</button>
+      <button class="pixel-account-button" id="pixel-account-create" type="button" aria-controls="pixel-account-create-confirmation" aria-expanded="false" hidden>Create a Rematch profile</button>
+      <button class="pixel-account-button" id="pixel-account-sign-out" type="button" hidden>Sign out of Rematch</button>
+      <div class="pixel-account-confirmation" id="pixel-account-create-confirmation" role="group" aria-labelledby="pixel-account-create-heading" hidden>
+        <strong id="pixel-account-create-heading">Create a separate Rematch profile?</strong>
+        <p>This creates a new Rematch profile with Pixel Pulse. Your progress on this device stays separate. Confirm your current Pixel password only on Pixel Pulse.</p>
+        <div class="pixel-account-confirmation-actions"><button class="pixel-account-button" id="pixel-account-create-confirm" type="button">Continue to Pixel Pulse</button><button class="pixel-account-button" id="pixel-account-create-cancel" type="button">Keep playing as a guest</button></div>
+      </div>
+    </section>
 
     <main id="home-screen" class="screen home-screen">
       <section class="hero lobby-hero">
@@ -63,5 +75,6 @@
   <div class="modal-backdrop" id="modal" hidden><section class="modal-card" id="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title"><button class="modal-close icon-button" data-action="close-modal" aria-label="Close dialog"><svg><use href="#icon-close"/></svg></button><div id="modal-content"></div></section></div>
   <div class="toast" id="toast" role="status" hidden></div>
   <script type="module" src="./app.js?v=21"></script>
+  <script type="module" src="./pixel-account.js?v=3"></script>
 </body>
 </html>

@@ -1,0 +1,12 @@
+{
+  "manifestVersion": 1,
+  "site": "rematch-rush",
+  "approved": false,
+  "target": null,
+  "endpointBindingEvidenceSha256": null,
+  "histories": null,
+  "schemaDefinitionSha256": "7d7f4c5113e1b7a00d79cafff614ae7bb8c55bdc09be83626d309cb0d8c53560",
+  "expectedEmptyCatalogDigest": null,
+  "expectedInstalledCatalogDigest": null,
+  "renderedDdlSha256": null
+}

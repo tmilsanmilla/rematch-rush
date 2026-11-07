@@ -3,5 +3,11 @@
   "framework": null,
   "installCommand": "npm install --ignore-scripts --no-audit --no-fund",
   "buildCommand": "npm test && npm run build",
-  "outputDirectory": "dist"
+  "outputDirectory": "dist",
+  "functions": {
+    "api/auth/**/*.js": {
+      "includeFiles": "server/**",
+      "excludeFiles": "{*.test.mjs,test/**,docs/**}"
+    }
+  }
 }

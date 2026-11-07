@@ -1,0 +1,47 @@
+{
+  "status": "LOCAL_DESIGN_ONLY_REQUIRES_REVIEWED_CENTRAL_REGISTRATION_AND_TARGET_AUTHORITY",
+  "issuer": "https://pixel-pulse-websites.vercel.app/api/sso",
+  "client_id": "rematch-rush",
+  "redirect_uris": [
+    "https://rematch-rush.vercel.app/api/auth/callback/pixel-pulse"
+  ],
+  "response_types": [
+    "code"
+  ],
+  "grant_types": [
+    "authorization_code"
+  ],
+  "token_endpoint_auth_method": "none",
+  "code_challenge_methods": [
+    "S256"
+  ],
+  "scope": "openid profile email",
+  "proof_version": 1,
+  "proof_intent": "link",
+  "proof_redeem_endpoint": "https://pixel-pulse-websites.vercel.app/api/sso/pixel-pulse/redeem-link",
+  "proof_jwks_endpoint": "https://pixel-pulse-websites.vercel.app/api/sso/jwks",
+  "flow_fields": [
+    "client_id",
+    "redirect_uri",
+    "response_type",
+    "scope",
+    "state",
+    "nonce",
+    "code_challenge",
+    "code_challenge_method",
+    "pixel_intent"
+  ],
+  "requested_for_future_review": {
+    "disabledRegistrationOnly": true,
+    "boundedFreshProofRequiresSeparateCorrespondence": true,
+    "publicFirstLinkOrCreateRequestedNow": false
+  },
+  "central_registration_applied": false,
+  "public_profile_creation_enabled": false,
+  "native_password_linking_supported": false,
+  "progress_import_or_email_adoption": false,
+  "refresh_or_offline_access": false,
+  "credentials_or_keys": "NONE",
+  "session_limit": "No later than original accepted signed identity expiry and five minutes from mint; no extension or global-retirement claim.",
+  "offline_handoff": "ops/registration-handoff.mjs --plan; --check validates only an exact disabled public descriptor; no apply operation"
+}
