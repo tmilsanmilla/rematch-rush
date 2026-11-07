@@ -136,6 +136,23 @@ export function updateBotPlayer(game, p, dt) {
       return;
     }
   }
+  // Respond to visible tackles before committing to a shot. The escape side is
+  // sampled per encounter, not the same clock-driven left/right weave each time.
+  if (own && enemy && p.dribbleCd <= 0 && !p.motion && game.distance(p, enemy) < 145 && enemy.motion?.steal) {
+    if (brain.evadeTarget !== enemy.id || s.elapsed >= (brain.evadeUntil || 0)) {
+      brain.evadeTarget = enemy.id; brain.evadeUntil = s.elapsed + .6;
+      brain.escapeSide = randomUnit(random) < .5 ? -1 : 1;
+    }
+    const dx = Math.abs(p.x - enemy.x) > 15 ? Math.sign(p.x - enemy.x) : dir;
+    const dy = p.y < FIELD.top + 80 ? 1 : p.y > FIELD.bottom - 80 ? -1 : brain.escapeSide;
+    const keys = { a: dx < 0, d: dx > 0, w: dy < 0, s: dy > 0 };
+    // First turn via real movement; the eventual dash then follows this escape
+    // direction instead of always using the previous forward-facing angle.
+    brain.shot = null; brain.decision = { keys, aim: { x: goalX, y: clamp(p.y + dy * 130, FIELD.top + 40, FIELD.bottom - 40) } };
+    if ((Math.cos(p.angle) * dx + Math.sin(p.angle) * dy) / Math.SQRT2 > .92) send({ ...brain.decision, action: true, shootHeld: false });
+    else send({ ...brain.decision, shootHeld: false });
+    return;
+  }
   const teamPassAt = s.lastTeamPassAt?.[p.team] ?? -10, pressure = enemy && game.distance(p, enemy) < 140;
   if (own && !p.motion && mate && goalDistance > 180 && s.elapsed - teamPassAt > 3.5 && game.distance(p, mate) > 85 && (pressure || (mate.x - p.x) * dir > 45 || goalDistance > 450)) {
     if (game.pass(p, mate, { power: 18 })) { s.lastTeamPassAt ||= [-10, -10]; s.lastTeamPassAt[p.team] = s.elapsed; brain.shot = null; send({ keys: {}, shootHeld: false }); return; }
@@ -154,15 +171,43 @@ export function updateBotPlayer(game, p, dt) {
     return;
   }
   if (brain.think <= 0) {
-    brain.think = .14;
+    brain.think = .10 + randomUnit(random) * .07;
     let tx = b.x, ty = b.y;
     const allies = s.players.filter(q => q.team === p.team), nearest = allies.slice().sort((a, q) => game.distance(a, b) - game.distance(q, b))[0];
-    if (own) { tx = goalX; ty = MID.y + Math.sin(s.elapsed * .9) * 100; }
+    if (own) {
+      if (!brain.runLane || s.elapsed >= brain.runLane.until) {
+        brain.escapeSide = randomUnit(random) < .5 ? -1 : 1;
+        brain.runLane = { y: clamp(p.y + brain.escapeSide * (55 + randomUnit(random) * 100), FIELD.top + 55, FIELD.bottom - 55), until: s.elapsed + .6 + randomUnit(random) * .8 };
+      }
+      tx = goalX; ty = brain.runLane.y;
+      if (enemy && game.distance(p, enemy) < 150) ty = clamp(enemy.y + brain.escapeSide * 115, FIELD.top + 45, FIELD.bottom - 45);
+    }
     else if (c.carrier?.team === p.team) { tx = clamp(c.carrier.x + dir * 150, FIELD.left + 100, FIELD.right - 100); ty = clamp(c.carrier.y + (c.carrier.y < MID.y ? 175 : -175), FIELD.top + 60, FIELD.bottom - 60); }
     else if (c.enemyCarrier) {
       const nearestDefender = allies.slice().sort((a, q) => game.distance(a, c.carrier) - game.distance(q, c.carrier))[0];
-      if (nearestDefender === p) { tx = c.carrier.x - dir * 25; ty = c.carrier.y; }
-      else { tx = c.carrier.x - dir * 120; ty = clamp(MID.y + (p.id < 2 ? -130 : 130), FIELD.top + 40, FIELD.bottom - 40); }
+      const carrier = c.enemyCarrier, homeX = p.team ? FIELD.right : FIELD.left;
+      const old = brain.observedCarrier, elapsed = old?.id === carrier.id ? s.elapsed - old.at : 0;
+      const vx = elapsed > 0 ? clamp((carrier.x - old.x) / elapsed, -250, 250) : 0;
+      const vy = elapsed > 0 ? clamp((carrier.y - old.y) / elapsed, -250, 250) : 0;
+      brain.observedCarrier = { id: carrier.id, x: carrier.x, y: carrier.y, at: s.elapsed };
+      const predicted = { x: clamp(carrier.x + vx * .22, FIELD.left, FIELD.right), y: clamp(carrier.y + vy * .22, FIELD.top, FIELD.bottom) };
+      const gx = homeX - predicted.x, gy = MID.y - predicted.y, length = Math.hypot(gx, gy) || 1;
+      const protectedCarrier = carrier.dribble > 0 || carrier.invincible > 0 || game.autoDribbling(carrier);
+      if (nearestDefender === p) {
+        const distance = game.distance(p, carrier), beaten = (p.x - carrier.x) * -dir < 0;
+        const gap = protectedCarrier ? 110 : beaten ? 140 : length < 260 ? 48 : 72;
+        tx = predicted.x + gx / length * gap; ty = predicted.y + gy / length * gap;
+        if (distance < 110 && !protectedCarrier && !beaten) {
+          brain.challengeAt ??= s.elapsed + .12 + randomUnit(random) * .24;
+          if (s.elapsed >= brain.challengeAt) { tx = predicted.x; ty = predicted.y; }
+        } else brain.challengeAt = null;
+      } else {
+        // Cover the shooting lane and a second runner rather than stack on the ball.
+        const runner = c.enemies.filter(q => q.id !== carrier.id).sort((a, b) => Math.abs(a.x - homeX) - Math.abs(b.x - homeX))[0];
+        tx = predicted.x + gx / length * 160;
+        ty = runner ? runner.y * .65 + MID.y * .35 : predicted.y + gy / length * 160;
+      }
+      tx = clamp(tx, FIELD.left + 35, FIELD.right - 35); ty = clamp(ty, FIELD.top + 35, FIELD.bottom - 35);
     } else if (typeof b.owner === 'string') {
       const keeper=s.keepers.find(k=>k.id===b.owner),friendly=keeper?.team===p.team;
       if(brain.keeperId!==b.owner||!brain.keeperLane||s.elapsed>brain.keeperLane.until){
@@ -176,8 +221,11 @@ export function updateBotPlayer(game, p, dt) {
     else if (nearest !== p) { tx = clamp(b.x + dir * 120, FIELD.left + 80, FIELD.right - 80); ty = clamp(b.y + (p.id < 2 ? -140 : 140), FIELD.top + 50, FIELD.bottom - 50); }
     const dx = tx - p.x, dy = ty - p.y;
     brain.decision = { keys: { w: dy < -13, s: dy > 13, a: dx < -13, d: dx > 13 }, aim: { x: goalX, y: MID.y } };
-    if (own && enemy && game.distance(p, enemy) < 90 && p.dribbleCd <= 0) send({ ...brain.decision, action: true });
-    else if (!own && (!c.carrier || c.carrier.team !== p.team) && game.distance(p, b) < 105 && p.slideCd <= 0 && b.z === 0) send({ ...brain.decision, action: true });
+    const target = c.enemyCarrier || (c.loose ? b : null), distance = target ? game.distance(p, target) : Infinity;
+    const facing = target && (Math.cos(p.angle) * (target.x - p.x) + Math.sin(p.angle) * (target.y - p.y)) / Math.max(1, distance);
+    if (!own && target && distance < 82 && facing > .72 && p.slideCd <= 0 && b.z === 0 && !target.dribble && !target.invincible && !game.autoDribbling(target) && (!c.enemyCarrier || s.elapsed >= (brain.challengeAt ?? Infinity))) {
+      send({ ...brain.decision, action: true }); brain.challengeAt = null;
+    }
   }
   game.botDecision = brain.decision; send({ ...brain.decision, shootHeld: false });
 }

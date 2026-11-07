@@ -13,20 +13,22 @@ function advance(game,seconds){for(let t=0;t<seconds-1e-9;t+=.005)game.update(Ma
 function random(value,callback){const previous=Math.random;try{Math.random=()=>value;return callback();}finally{Math.random=previous;}}
 
 for(const team of [0,1]){
- test(`keeper throws are receivable nearby, in midfield and far upfield for team ${team}`,()=>{
+ test(`keeper throws reach a general receiving lane that a player can collect for team ${team}`,()=>{
   for(const x of [180,550,900]){
-   const {game,player,keeper}=match(team);Object.assign(player,{x:team?1200-x:x,y:380});
+   const {game,player,keeper}=match(team,{keeperRandom:()=>.6});Object.assign(player,{x:team?1200-x:x,y:380});
    game.keeperCatch(keeper);keeper.holding=0;game.update(.005);
    assert.equal(game.state.ball.passTarget,player.id);assert.equal(game.state.ball.pass.fromId,keeper.id);
    assert.equal(game.state.ball.distribution.targetId,player.id);
-   for(let i=0;i<500&&!game.hasBall(player);i++)game.update(.005);
+   const target=game.state.ball.distribution.target;
+   assert.ok(Math.hypot(target.x-player.x,target.y-player.y)>=18,'the throw is not a perfect pass');
+   for(let i=0;i<500&&!game.hasBall(player);i++){game.setInput(player.id,{keys:{a:target.x<player.x-4,d:target.x>player.x+4,w:target.y<player.y-4,s:target.y>player.y+4}});game.update(.005);}
    assert.equal(game.state.ball.owner,player.id,`throw to ${x} must reach the intended player`);
    assert.equal(player.shotsTaken,0);assert.equal(player.ultraCharge,0);
    assert.equal(player.lastReceivedFromId,keeper.id);
   }
  });
  test(`a keeper leads a running player with an interceptable physical pass for team ${team}`,()=>{
-  const {game,player,keeper}=match(team);Object.assign(player,{x:team?750:450,y:350});
+  const {game,player,keeper}=match(team,{keeperRandom:()=>0});Object.assign(player,{x:team?750:450,y:350});
   game.setInput(player.id,{keys:{s:true}});game.keeperCatch(keeper);keeper.holding=0;game.update(.005);
   assert.ok(game.state.ball.distribution.target.y>player.y);
   assert.equal(game.state.ball.perfectPass,null);

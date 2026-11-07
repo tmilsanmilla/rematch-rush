@@ -15,7 +15,10 @@ function appHarness() {
       innerHTML: '', textContent: '', hidden: true, disabled: false, value: '', isConnected: true, style: {}, dataset: {}, attrs: {},
       classList: { toggle() {}, add() {}, remove() {} }, setAttribute(name, value) { this.attrs[name] = value; }, addEventListener() {},
       focus() { this.focused = true; },
-      querySelector: node, querySelectorAll: () => [],
+      querySelector: child => node(`${selector} ${child}`), querySelectorAll: child => {
+        if (selector !== '#ability-list' || !child.startsWith('button.ability-button')) return [];
+        return [...node(selector).innerHTML.matchAll(/<button[^>]+data-key="(\d+)"/g)].map(match => node(`#move-${match[1]}`));
+      },
     });
     return nodes.get(selector);
   };
@@ -682,4 +685,22 @@ test('matchmaking suppresses provisional room-code instructions while preserving
   assert.doesNotMatch(app.node('#room-status').innerHTML, /AB12|Share the code/);
   session.options.onStatus({type:'error',message:'Matchmaking could not reach the service.'});
   assert.match(app.node('#room-status').innerHTML, /Matchmaking could not reach the service/);
+});
+
+
+test('move tiles retain visible keys, soccer-ball charges and tenths-only cooldowns', () => {
+  const app=appHarness(); app.setGame({});
+  const match=state('powershooter'); match.players[0].cooldowns=[22.56,3.56,0]; app.updateHUD(match);
+  const moves=app.node('#ability-list').innerHTML, ultra=app.node('#ultra-shot-control').innerHTML;
+  assert.match(moves, /<kbd>1<\/kbd>/); assert.match(moves, /<kbd>2<\/kbd>/);
+  assert.match(ultra, /<kbd>F<\/kbd>/); assert.equal((ultra.match(/⚽/g)||[]).length,3);
+  assert.equal(app.node('#move-1 em').textContent,'22.6s'); assert.equal(app.node('#move-2 em').textContent,'3.6s');
+  assert.equal(app.node('#move-1 em').hidden,false);
+  match.players[0].cooldowns=[0,0,0]; app.updateHUD(match); assert.equal(app.node('#move-1 em').hidden,true);
+});
+
+test('replay UI uses the engine permission so offline humans can skip bot goals',()=>{
+ const app=appHarness(); let allowed=true; app.setGame({canSkipReplay:()=>allowed});
+ const match=state(); Object.assign(match,{phase:'replay',scorer:1,scorerTeam:1}); app.updateHUD(match);
+ assert.equal(app.node('#skip-replay').hidden,false); allowed=false; app.updateHUD(match); assert.equal(app.node('#skip-replay').hidden,true);
 });

@@ -169,3 +169,26 @@ test('stopping removes all pointer and keyboard listeners without touching brows
   assert.deepEqual(f.game.localInput.aim,before);assert.equal(f.sent.length,count);assert.equal(f.requests,0);
  }finally{f.close();}
 });
+
+
+test('Space skips with cursor lock for the offline human even after a bot goal, but ignores repeats and editable fields',()=>{
+ const f=fixture('bot'); try {
+   f.game.state.players[1].isBot=true; f.game.state.ball.lastTouch=1; f.game.goal(1); f.game.requestCursorLock();
+   assert.equal(f.game.isCursorLocked(),true); assert.equal(f.game.canSkipReplay(),true);
+   f.win.dispatchEvent(event('keydown',{key:' ',code:'Space',repeat:true})); assert.equal(f.game.state.phase,'celebrate');
+   const input={tagName:'INPUT'}; const editing=event('keydown',{key:' ',code:'Space'}); Object.defineProperty(editing,'target',{value:input}); f.win.dispatchEvent(editing); assert.equal(f.game.state.phase,'celebrate');
+   f.win.dispatchEvent(event('keydown',{key:' ',code:'Space'})); assert.equal(f.game.state.phase,'play'); assert.equal(f.game.state.kickoff.team,0);
+   assert.equal(f.game.isCursorLocked(),true); assert.equal(f.requests,1);
+ } finally {f.close();}
+});
+
+test('online Space cannot skip the rival scorer replay and the guest scorer forwards one validated request',()=>{
+ for(const scorer of [0,1]){
+   const f=fixture('guest'); try {
+     f.game.state.phase='replay'; f.game.state.scorer=scorer; f.game.state.scorerTeam=scorer;
+     f.win.dispatchEvent(event('keydown',{key:' ',code:'Space'}));
+     assert.equal(f.sent.filter(input=>input.skipReplay).length,scorer===0?1:0);
+     assert.equal(f.game.state.phase,'replay','only the authoritative host ends a guest replay');
+   } finally {f.close();}
+ }
+});
