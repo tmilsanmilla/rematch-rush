@@ -79,6 +79,15 @@ or apply changes. Existing auth schema/roles/history/rows must remain preserved.
 Runtime and migration ownership stay separate, with explicit per-table grants.
 There is no runtime DDL.
 
+Money and the public character standings can be enabled with no administrator
+assigned. `ops/game-activation.mjs` supplies the source-bound rollback rehearsal
+and pinned apply transaction. Both compare the complete protected catalog and
+private auth rows in the database, allowing only the explicit game namespace and
+its generated inbound foreign-key dependencies. Only digests and booleans leave
+the transaction. The apply phase requires the actual rehearsal catalog and game
+shape digests; it refuses an existing game schema or any mismatch. It never
+creates an identity, adopts device progress, or chooses a default administrator.
+
 Initial Edung access requires an operator-verified immutable account and binding
 correspondence. Display-name equality cannot bootstrap a role. Existing admins
 can grant/revoke/check styles, add/remove admins, ban/unban/query and dismiss

@@ -9,16 +9,18 @@ export const GAME_TARGET=Object.freeze({host:'ep-sweet-river-bcqdieaq.c-16.us-ea
 export function gameDefinition(){const text=readFileSync(new URL('./sql/game-progression.sql',import.meta.url),'utf8');const definition=text.split('-- BEGIN REMATCH GAME DEFINITION\n')[1]?.split('-- END REMATCH GAME DEFINITION')[0];check(definition,'Game DDL marker missing.');return {definition,sha256:hash(definition)};}
 /** PREPARATION ONLY. The caller must supply independently reviewed immutable
  * admin identity and before/after catalog pins. This constructs no connection. */
-export function renderGameExtension({target,existingCatalogSha256,expectedInstalledSha256,adminAccountId,adminBindingSha256,startsAt,reviewed=false}){
+export function renderGameExtension({target,existingCatalogSha256,expectedInstalledSha256,adminAccountId,adminBindingSha256,startsAt,reviewed=false,deferAdmin=false}){
  check(reviewed===true,'Operator review required.');check(JSON.stringify(target)===JSON.stringify(GAME_TARGET),'Wrong existing dedicated Rematch target.');
- for(const pin of [existingCatalogSha256,expectedInstalledSha256,adminBindingSha256])check(/^[a-f0-9]{64}$/.test(pin||''),'Missing independently reviewed catalog/admin binding pin.');
- check(/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(adminAccountId||''),'Verified immutable initial admin account required.');
+ for(const pin of [existingCatalogSha256,expectedInstalledSha256,...(deferAdmin?[]:[adminBindingSha256])])check(/^[a-f0-9]{64}$/.test(pin||''),'Missing independently reviewed catalog/admin binding pin.');
+ if(deferAdmin)check(adminAccountId==null&&adminBindingSha256==null,'Deferred admin must not select an identity.');
+ else check(/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(adminAccountId||''),'Verified immutable initial admin account required.');
  const start=Date.parse(startsAt);check(Number.isFinite(start)&&new Date(start).toISOString()===startsAt,'Exact league start required.');const {definition,sha256}=gameDefinition();
  const grants=Object.entries(GAME_PRIVILEGES).map(([table,rights])=>`GRANT ${rights.join(',')} ON rematch_game.${table} TO ${target.runtimeRole};`).join('\n');
  // The enclosing operator applies only after a same-connection target/catalog/
  // immutable account correspondence check and repeats preservation before commit.
- const sql=`BEGIN;\nSET LOCAL lock_timeout='3000ms';\nSET LOCAL statement_timeout='10000ms';\nSET LOCAL ROLE ${target.operatorRole};\nCREATE SCHEMA rematch_game AUTHORIZATION ${target.schemaOwner};\nSET LOCAL ROLE ${target.schemaOwner};\n${definition.replace('CREATE SCHEMA rematch_game;','')}\nINSERT INTO rematch_game.schema_meta(singleton,contract_version,migration_hash) VALUES(true,1,'${sha256}');\nINSERT INTO rematch_game.league_stages(id,starts_at,ends_at) VALUES('stage-1','${startsAt}'::timestamptz,'${startsAt}'::timestamptz+interval '14 days');\nINSERT INTO rematch_game.admins(account_id) VALUES('${adminAccountId}'::uuid);\nGRANT USAGE ON SCHEMA rematch_game TO ${target.runtimeRole};\n${grants}\nSET CONSTRAINTS ALL IMMEDIATE;\n-- STOP: verify the complete preserved auth catalog/data and exact game ACLs.\nROLLBACK;\n`;
- return {sql,sqlSha256:hash(sql),history:sha256,existingCatalogSha256,expectedInstalledSha256,adminBindingSha256,commitEnabled:false};
+ const initialAdmin=deferAdmin?'-- Initial administrator intentionally deferred; no account is selected or granted access.':`INSERT INTO rematch_game.admins(account_id) VALUES('${adminAccountId}'::uuid);`;
+ const sql=`BEGIN;\nSET LOCAL lock_timeout='3000ms';\nSET LOCAL statement_timeout='10000ms';\nSET LOCAL ROLE ${target.operatorRole};\nCREATE SCHEMA rematch_game AUTHORIZATION ${target.schemaOwner};\nSET LOCAL ROLE ${target.schemaOwner};\n${definition.replace('CREATE SCHEMA rematch_game;','')}\nINSERT INTO rematch_game.schema_meta(singleton,contract_version,migration_hash) VALUES(true,1,'${sha256}');\nINSERT INTO rematch_game.league_stages(id,starts_at,ends_at) VALUES('stage-1','${startsAt}'::timestamptz,'${startsAt}'::timestamptz+interval '14 days');\n${initialAdmin}\nGRANT USAGE ON SCHEMA rematch_game TO ${target.runtimeRole};\n${grants}\nSET CONSTRAINTS ALL IMMEDIATE;\n-- STOP: verify the complete preserved auth catalog/data and exact game ACLs.\nROLLBACK;\n`;
+ return {sql,sqlSha256:hash(sql),history:sha256,existingCatalogSha256,expectedInstalledSha256,adminBindingSha256,initialAdmin:deferAdmin?'deferred':'verified',commitEnabled:false};
 }
 export function gameCatalogPlan(){return Object.freeze({connectionCreated:false,queries:{
  identity:"SELECT current_database(),current_user,session_user,inet_server_addr(),inet_server_port(),current_setting('transaction_read_only')",
