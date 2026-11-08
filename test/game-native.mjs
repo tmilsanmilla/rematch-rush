@@ -11,13 +11,26 @@ export function validateGameNativeContext(context,permit,now=Date.now()){
  assert.equal(context?.host,'127.0.0.1');assert.ok(Number.isInteger(context.port)&&context.port>=1024&&context.port<=65535);assert.match(context.database,/^rematch_pixel_test_[a-f0-9]{8}$/);const tag=context.database.slice(-8);assert.equal(context.ownerRole,'rematch_game_test_owner_'+tag);assert.equal(context.runtimeRole,'rematch_game_test_runtime_'+tag);
  assert.equal(permit?.scope,'REMATCH_GAME_OWNED_EMPTY_LOCAL_FIXTURE_ONLY');assert.equal(permit.database,context.database);assert.equal(permit.port,context.port);assert.equal(permit.host,context.host);assert.equal(permit.ownerRole,context.ownerRole);assert.equal(permit.runtimeRole,context.runtimeRole);assert.ok(Number.isSafeInteger(permit.startsAt)&&Number.isSafeInteger(permit.endsAt)&&permit.startsAt<=now&&now<permit.endsAt&&permit.endsAt-permit.startsAt<=600000);assert.match(permit.sourceHash,/^[a-f0-9]{64}$/);assert.equal(permit.ddlHash,gameDefinition().sha256);return Object.freeze({...context});
 }
+// pg Pool.query uses callback-style Pool.connect AND Client.query internally.
+// Preserve both overloads even though the application store awaits promises.
+export function gameFixturePool(Pool,{beforeConnect=()=>{},beforeQuery=()=>{},afterQuery=()=>{}}={}){
+ const wrapped=new WeakSet();
+ return class extends Pool{
+  connect(callback){
+   try{beforeConnect();}catch(error){if(typeof callback==='function'){queueMicrotask(()=>callback(error));return;}return Promise.reject(error);}
+   const prepare=client=>{if(!wrapped.has(client)){wrapped.add(client);const query=client.query.bind(client);client.query=(sql,...args)=>{const done=typeof args.at(-1)==='function'?args.pop():null;const execute=async()=>{await beforeQuery(sql,client);const result=await query(sql,...args);await afterQuery(sql,client,result);return result;};if(done){execute().then(result=>done(null,result),error=>done(error));return;}return execute();};}return client;};
+   if(typeof callback==='function')return super.connect((error,client,release)=>callback(error,error?client:prepare(client),release));
+   return super.connect().then(prepare);
+  }
+ };
+}
 export async function runGameNativeSuite(t,{context,permit}){
  assert.equal(process.env.NODE_ENV,'test');for(const key of ['DATABASE_URL','REMATCH_PIXEL_DATABASE_URL','PGHOST','PGPORT','PGDATABASE','PGUSER','PGPASSWORD','PGSERVICE','PGSERVICEFILE','PGPASSFILE'])assert.equal(process.env[key],undefined);
  const approved=validateGameNativeContext(context,permit),plan=await gameNativePlan();assert.equal(plan.sourceHash,permit.sourceHash);const live=()=>validateGameNativeContext(approved,permit);
  // These imports and connections are unreachable through the default suite.
  const {Pool}=await import('pg');const [{createGameStore},{createGameService},{readTargetConfig}]=await Promise.all([import('../server/game-store.mjs'),import('../server/game-service.mjs'),import('../server/pixel-target.mjs')]);
  const connection=user=>({host:approved.host,port:approved.port,database:approved.database,user,password:()=>'',ssl:false,options:'-c search_path=pg_catalog -c timezone=UTC -c statement_timeout=5000ms',replication:'false',client_encoding:'UTF8',sslnegotiation:'postgres',max:3,connectionTimeoutMillis:3000});
- class DeadlinePool extends Pool{async connect(){const c=await super.connect();if(!c.fixtureDeadline){c.fixtureDeadline=true;const query=c.query.bind(c);c.query=(sql,params)=>{if(sql!=='ROLLBACK')live();return query(sql,params);};}return c;}}
+ const DeadlinePool=gameFixturePool(Pool,{beforeQuery:sql=>{if(sql!=='ROLLBACK')live();}});
  const owner=new DeadlinePool(connection(approved.ownerRole)),observer=new DeadlinePool(connection(approved.runtimeRole));let store,waitingPid=null;const before=async()=>{live();const r=(await owner.query('SELECT current_database() AS db,current_user AS role,inet_server_addr()::text AS host,inet_server_port() AS port')).rows[0];assert.deepEqual(r,{db:approved.database,role:approved.ownerRole,host:'127.0.0.1',port:approved.port});};
  try{await before();assert.equal((await owner.query("SELECT 1 FROM pg_namespace WHERE nspname IN('rematch_pixel','rematch_game')")).rowCount,0,'Only a fresh empty owned fixture can be initialized.');
   await owner.query(await readFile(new URL('./fixtures/pixel-local-schema.sql',import.meta.url),'utf8'));await owner.query(gameDefinition().definition);const history=gameDefinition().sha256;
@@ -34,7 +47,7 @@ export async function runGameNativeSuite(t,{context,permit}){
   const preserved=(await owner.query('SELECT jsonb_agg(to_jsonb(a) ORDER BY id) AS rows FROM rematch_pixel.accounts a')).rows[0].rows,bindings=(await owner.query('SELECT jsonb_agg(to_jsonb(a) ORDER BY subject) AS rows FROM rematch_pixel.bindings a')).rows[0].rows;
   const env={NODE_ENV:'test',REMATCH_PIXEL_LOCAL_TEST_MODE:'true',REMATCH_PIXEL_TARGET_APPROVED:'true',REMATCH_PIXEL_DATABASE_URL:`postgresql://${approved.runtimeRole}@127.0.0.1:${approved.port}/${approved.database}`,REMATCH_PIXEL_APPROVED_HOST:'127.0.0.1',REMATCH_PIXEL_APPROVED_PORT:String(approved.port),REMATCH_PIXEL_APPROVED_DATABASE:approved.database,REMATCH_PIXEL_APPROVED_ROLE:approved.runtimeRole,REMATCH_PIXEL_APPROVED_HISTORY:H};const config=readTargetConfig(env);
   let delayFinal=false;
-  class GuardedPool extends Pool{async connect(){live();const client=await super.connect();if(!client.gameGuarded){client.gameGuarded=true;const query=client.query.bind(client);client.query=async(sql,params)=>{if(sql!=='ROLLBACK')live();if(String(sql).includes('pg_advisory_xact_lock(1919249761,1734438245)'))waitingPid=client.processID;const r=await query(sql,params);if(delayFinal&&String(sql).startsWith('INSERT INTO rematch_game.operations'))await query('SELECT pg_sleep(.25)');return r;};}return client;}}
+  const GuardedPool=gameFixturePool(Pool,{beforeConnect:live,beforeQuery:(sql,client)=>{if(sql!=='ROLLBACK')live();if(String(sql).includes('pg_advisory_xact_lock(1919249761,1734438245)'))waitingPid=client.processID;},afterQuery:async(sql,client)=>{if(delayFinal&&String(sql).startsWith('INSERT INTO rematch_game.operations'))await client.query('SELECT pg_sleep(.25)');}});
   store=createGameStore(config,{history,PoolClass:GuardedPool});const service=createGameService(store,{choose:()=> 'ice'}),op=input=>({operationId:randomUUID(),...input}),money=async()=>Number((await owner.query('SELECT money FROM rematch_game.profiles WHERE account_id=$1',[A])).rows[0].money);
   await t.test('two actual workers charge a repeated operation once',async()=>{const input=op({type:'normal'}),[x,y]=await Promise.all([service.run('a'.repeat(64),'spin',input),service.run('a'.repeat(64),'spin',input)]);assert.deepEqual(x,y);assert.equal(await money(),165);await assert.rejects(service.run('a'.repeat(64),'spin',{...input,type:'lucky'}),/conflict/);});
   await t.test('distinct concurrent operations serialize both charges',async()=>{await Promise.all([service.run('a'.repeat(64),'spin',op({type:'normal'})),service.run('a'.repeat(64),'spin',op({type:'normal'}))]);assert.equal(await money(),95);});
