@@ -23,7 +23,7 @@ test('static build contains all current gameplay and account assets, byte-identi
   const outputDirectory = join(scratch, 'dist');
   await buildStaticSite({ outputDirectory });
   assert.deepEqual(await filesUnder(outputDirectory), [...PUBLIC_ASSETS].sort());
-  const expected = ['index.html','style.css','app.js','game.js','characters.js','online.js','pixel-account.js','vendor/peerjs.min.js'];
+  const expected = ['index.html','style.css','app.js','game.js','characters.js','online.js','pixel-account.js','vendor/peerjs.min.js','match-rules.js','penalties.js','progression.js','dlsi.js','game-account.js','match-audit.js'];
   if ((await readFile(join(root, 'game.js'), 'utf8')).includes('bot-brain.js')) expected.push('bot-brain.js');
   assert.deepEqual([...PUBLIC_ASSETS].sort(), expected.sort());
   for (const file of PUBLIC_ASSETS) assert.deepEqual(await readFile(join(outputDirectory, file)), await readFile(join(root, file)));
@@ -52,7 +52,7 @@ test('all seven fixed auth routes export only their Web request method and refer
     ['auth/pixel-pulse/cancel.js', ['POST', '/api/auth/pixel-pulse/cancel']],
     ['auth/callback/pixel-pulse.js', ['GET', '/api/auth/callback/pixel-pulse']],
   ]);
-  assert.deepEqual(await filesUnder(join(root, 'api')), [...expected.keys()].sort());
+  assert.deepEqual((await filesUnder(join(root, 'api'))).filter(f=>f.startsWith('auth/')), [...expected.keys()].sort());
   for (const [file, [method, route]] of expected) {
     const full = join(root, 'api', file), source = await readFile(full, 'utf8');
     assert.match(source, /import \{ servePixelRequest \} from '\.\.\/\.\.\/\.\.\/server\/pixel-runtime\.mjs'/);

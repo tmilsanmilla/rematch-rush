@@ -4,9 +4,12 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { ROSTER, getSkills } from './characters.js';
 import { normalizeRoomConfig } from './online.js';
+import {MATCH_RULES,ONLINE_FORMATS,rulesFor} from './match-rules.js';
+import {normaliseProgress,settleProgress,buySpin,toggleVariant,selectedVariants,variantUnlocks,QUESTS,SPIN_PRICES} from './progression.js';
+import {randomUUID} from 'node:crypto';
 import { ACTION_COOLDOWNS } from './game.js';
 
-function appHarness() {
+function appHarness(savedProfile={money:500}) {
   const nodes = new Map(), listeners = new Map(), intervals = new Map(), windowListeners = new Map();
   const sessions = [], games = [];
   let timerId = 0;
@@ -28,7 +31,7 @@ function appHarness() {
     body: { classList: { toggle() {} }, style: {} },
   };
   const context = {
-    document, ROSTER, getSkills, ACTION_COOLDOWNS,
+    document, ROSTER, getSkills, ACTION_COOLDOWNS,MATCH_RULES,ONLINE_FORMATS,rulesFor,normaliseProgress,settleProgress,buySpin,toggleVariant,selectedVariants,variantUnlocks,QUESTS,SPIN_PRICES,crypto:{randomUUID},createGameAccount:()=>({current:null,pending:null,refresh:async()=>null,leaderboard:async()=>{throw Error('offline');}}),
     OnlineSession: class {
       constructor(options) { this.options = options; this.role = 'host'; this.closed = false; this.starts = 0; sessions.push(this); }
       queue(...args) { this.queued = args; return new Promise((resolve, reject) => { this.resolveQueue = resolve; this.rejectQueue = reject; }); }
@@ -51,7 +54,7 @@ function appHarness() {
       setInput() {}
     },
     window: { addEventListener(type, listener) { windowListeners.set(type, listener); }, scrollTo() {}, dispatchEvent() { throw new Error('UI actions must use the game API.'); } },
-    localStorage: { getItem: () => null, setItem() {} },
+    localStorage: { getItem: () => JSON.stringify(savedProfile), setItem() {} },
     Math: Object.assign(Object.create(Math), { random: () => 0 }),
     setTimeout: () => 0, clearTimeout() {},
     setInterval(callback) { const id = ++timerId; intervals.set(id, callback); return id; },
@@ -200,9 +203,9 @@ test('every spin result has Spin again and retains equip and roster controls, in
     assert.match(result, /data-action="spin-again"[^>]*>Spin again/);
     assert.match(result, /data-action="equip-reveal"/);
     assert.match(result, /Back to the roster/);
-    assert.match(result, /Unlimited spins available/);
+    assert.ok(result.includes(`$${500-35*(spin+1)} remaining`));
     assert.equal(app.node('#modal .modal-close').disabled, false);
-    assert.equal(app.node('#spins-count').textContent, '∞');
+    assert.equal(app.node('#spins-count').textContent, `$${500-35*(spin+1)}`);
     if (spin > 0) assert.match(result, /Duplicate character/);
     if (spin < 4) {
       app.click('spin-again');
@@ -340,6 +343,7 @@ test('clicking any locked character opens its moves without unlocking or equippi
     const html = app.node('#modal-content').innerHTML;
     assert.ok(html.includes(`>${escapeMarkup(character.name)}</h2>`), `${character.name} has its own guide`);
     assert.match(html, /explore every move before unlocking/);
+    assert.doesNotMatch(html, /undefined|<h4>\s*<\/h4>/, `${character.name} has no empty variant cards`);
     assert.doesNotMatch(html, /data-action="equip-reveal"/);
     assert.equal(app.node('#equip-button').disabled, true);
     assert.equal(app.node('#roster-unlocked').textContent, unlockedBefore);
@@ -450,7 +454,7 @@ test('the game UI preserves ordinary aiming and exposes an explicit optional cur
   assert.equal(app.node('#cursor-lock-button').attrs['aria-pressed'],'false');assert.equal(app.node('#cursor-lock-button').textContent,'CTRL LOCK');
   app.click('cursor-lock');app.updateHUD(state());assert.equal(calls,1);assert.equal(app.node('#cursor-lock-button').textContent,'UNLOCK');assert.equal(app.node('#cursor-lock-button').attrs['aria-pressed'],'true');
   const html=readFileSync(new URL('./index.html',import.meta.url),'utf8');assert.match(html,/data-action="cursor-lock"/);
-  app.click('help');assert.match(app.node('#modal-content').innerHTML,/Point at the pitch to choose your shot direction/);assert.match(app.node('#modal-content').innerHTML,/Optional Ctrl lock/);assert.match(app.node('#modal-content').innerHTML,/three seconds before the final shot/);
+  app.click('help');assert.match(app.node('#modal-content').innerHTML,/Point at the pitch to choose your shot direction/);assert.match(app.node('#modal-content').innerHTML,/Optional Ctrl lock/);assert.match(app.node('#modal-content').innerHTML,/25 seconds/);
 });
 
 test('Escape releases optional cursor lock without opening the help overlay',()=>{
@@ -475,7 +479,7 @@ test('character cards are ordered Common through Master, with the starter still 
 
 
 test('normal and lucky spin tiers use the exact Arrival of the Best odds', () => {
-  const app = appHarness();
+  const app = appHarness({money:500,unlocked:['none','manmarker','ice','ninja','falcon']});
   assert.equal(JSON.stringify(app.SPIN_ODDS.normal), JSON.stringify([['common',44],['rare',30],['epic',15],['legendary',8.4],['world class',2.2],['master',.4]]));
   assert.equal(JSON.stringify(app.SPIN_ODDS.lucky), JSON.stringify([['rare',33],['epic',45],['legendary',13],['world class',7],['master',2]]));
   for (const type of ['normal','lucky']) {
@@ -489,11 +493,11 @@ test('normal and lucky spin tiers use the exact Arrival of the Best odds', () =>
   }
   app.click('lucky-spin'); app.finishSpin();
   const html=app.node('#modal-content').innerHTML;
-  assert.match(html,/Unlimited lucky spins available/);
+  assert.match(html,/\$[0-9]+ remaining/);
   assert.match(html,/data-action="spin-again" data-spin="lucky"/);
   assert.doesNotMatch(html,/>COMMON</);
   app.click('spin-again',undefined,0,undefined,undefined,'lucky');app.finishSpin();
-  assert.match(app.node('#modal-content').innerHTML,/Unlimited lucky spins available/);
+  assert.match(app.node('#modal-content').innerHTML,/\$[0-9]+ remaining/);
 });
 
 test('match selection separates offline bot matches from queued online matches and code rooms', async () => {
@@ -607,7 +611,7 @@ test('custom-room controls send the chosen human and bot roster and game setting
   assert.equal(app.sessions.length, 1);
   const session = app.sessions[0];
   assert.equal(session.created[2], 'custom');
-  assert.equal(JSON.stringify(session.created[3]), JSON.stringify({slots:['human','human','bot','bot'],duration:600,scoreLimit:5}));
+  assert.equal(JSON.stringify(session.created[3]), JSON.stringify({slots:['human','human','bot','bot','empty','empty'],duration:600,scoreLimit:5,botCharacters:{}}));
   assert.equal(session.queued, undefined);
   assert.match(app.node('#online-panel').innerHTML, /AB12/);
 });
@@ -665,7 +669,7 @@ test('reopening an invalid custom roster keeps Create disabled until an opponent
   app.click('close-modal'); app.click('online');
   const html = app.node('#modal-content').innerHTML;
   assert.match(html, /id="create-room-button"[^>]*\sdisabled(?:\s|>)/);
-  assert.match(html, /id="custom-room-summary">Add a friend or bot to the red team\./);
+  assert.match(html, /id="custom-room-summary"[^>]*>Add a friend or bot to the red team\./);
   app.change('room-slot-1', 'human');
   assert.equal(app.node('#create-room-button').disabled, false);
   assert.match(app.node('#custom-room-summary').textContent, /Friend/);

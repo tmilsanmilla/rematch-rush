@@ -59,7 +59,7 @@ test('team awakening draws cover all eligible players and never repeat the previ
 });
 
 test('only the individual scorer may skip a team replay',()=>{
- const game=match();game.state.ball.lastTouch=2;game.goal(0);assert.equal(game.state.scorer,2);assert.equal(game.skipReplay(0),false);assert.equal(game.skipReplay(1),false);assert.equal(game.skipReplay(2),true);
+ const game=match();game.state.ball.lastTouch=2;game.goal(0);assert.equal(game.state.scorer,2);assert.equal(game.skipReplay(0),true);assert.equal(game.skipReplay(1),true);assert.equal(game.state.phase,'celebrate');assert.equal(game.skipReplay(2),true);assert.equal(game.state.phase,'celebrate');game.skipReplay(3);assert.equal(game.state.phase,'play');
 });
 
 test('Butterfly counter bonuses do not stack and Emperor power follows his current half',()=>{

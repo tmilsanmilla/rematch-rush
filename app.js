@@ -1,13 +1,16 @@
-import { Game, ACTION_COOLDOWNS } from './game.js?v=20';
-import { ROSTER, getSkills } from './characters.js?v=8';
-import { OnlineSession } from './online.js?v=11';
+import {createGameAccount} from './game-account.js?v=1';
+import {normaliseProgress,settleProgress,buySpin,toggleVariant,selectedVariants,variantUnlocks,QUESTS,SPIN_PRICES} from './progression.js?v=1';
+import { MATCH_RULES, ONLINE_FORMATS, rulesFor } from './match-rules.js?v=1';
+import { Game, ACTION_COOLDOWNS } from './game.js?v=21';
+import { ROSTER, getSkills } from './characters.js?v=9';
+import { OnlineSession } from './online.js?v=12';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const esc = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
 const icon = name => `<svg aria-hidden="true"><use href="#icon-${name}"/></svg>`;
 const storageKey = 'rematch-rush-profile-v1';
-const UNLIMITED_SPINS = true;
+const UNLIMITED_SPINS = false;
 const ids = new Set(ROSTER.map(character => character.id));
 let saved = {};
 try { saved = JSON.parse(localStorage.getItem(storageKey) || '{}') || {}; } catch { /* A fresh local profile also works with restricted storage. */ }
@@ -15,6 +18,7 @@ const profile = {
   name: typeof saved.name === 'string' ? saved.name.slice(0, 18) : 'Player',
   unlocked: [...new Set(['none', ...(Array.isArray(saved.unlocked) ? saved.unlocked.filter(id => ids.has(id)) : [])])],
   equipped: ids.has(saved.equipped) ? saved.equipped : 'none',
+  ...normaliseProgress(saved),
   spins: Number.isInteger(saved.spins) ? Math.max(0, Math.min(saved.spins, 3)) : 3,
   sound: saved.sound !== false,
   reducedMotion: saved.reducedMotion === true,
@@ -32,15 +36,19 @@ let localPlayerId = 0;
 let onlineFormat = 'custom';
 let offlineFormat = 'bot-standard';
 let queueFormat = null;
-let customConfig = { slots: ['human', 'human', 'bot', 'bot'], duration: 300, scoreLimit: 0 };
+let customConfig = { slots: ['human', 'human', 'bot', 'bot','empty','empty'], duration: 300, scoreLimit: 0, botCharacters:{} };
 let roomLobby = null;
-const GAME_FORMATS = {
-  'bot-standard': { name: 'Bot Standard · 1v1', detail: 'You versus one bot. An AI goalkeeper on each team.', humans: 1 },
-  'bot-2v2': { name: '2v2 vs Bots', detail: 'You + a bot teammate versus two bots, plus AI goalkeepers.', humans: 1 },
-  'standard-1v1': { name: '1v1', detail: 'Join the queue to find another player. AI goalkeepers on both sides.', humans: 2 },
-  'standard-2v2': { name: '2v2', detail: 'Join the queue for two human players per team, plus AI goalkeepers.', humans: 4 },
-  custom: { name: 'Custom Room', detail: 'Choose human and bot teammates, match length, and a goal target.', humans: 2 },
-};
+const GAME_FORMATS = Object.fromEntries(Object.entries(MATCH_RULES).map(([id,r])=>[id,{...r,name:id==='custom'?'Custom Room':id==='bot-team'?'Co-op vs Bots':id==='bot-penalty'?'Bot Penalty Practice':id==='penalties-1v1'?'1v1 Penalties Online':`${r.size}v${r.size} ${id.startsWith('bot-')?'Bot':'Online'} ${r.variant==='raw'?'Raw Skill':'Standard'}`,detail:r.variant==='raw'?'Characterless only · fixed 3-minute match':r.variant.startsWith('penalt')?'Penalty shots · no Destruction League points':id.startsWith('bot-')?'Play instantly with AI goalkeepers':'Queue for real players with AI goalkeepers'}]));
+let offlineBots={};
+function renderModes(){
+ const section=(title,formats)=>`<div class="mode-heading"><h2>${title}</h2><span>Every standard team has a goalkeeper</span></div><div class="mode-grid">${formats.map(format=>{const r=GAME_FORMATS[format],bot=format.startsWith('bot-');return `<button class="mode-card ${bot?'offline-mode':''}" data-action="${bot?'play-bot':'queue-online'}" data-format="${format}"><span class="mode-tag">${bot?'OFFLINE · PLAY NOW':'ONLINE · MATCHMAKING'}</span><strong>${esc(r.name)}</strong><small>${esc(r.detail)}</small><span class="mode-arrow">↗</span></button>`;}).join('')}</div>`;
+ $('#mode-grid').innerHTML=section('OFFLINE',Object.keys(GAME_FORMATS).filter(f=>f.startsWith('bot-')&&f!=='bot-team'))+`<button class="button outline bot-setup-button" data-action="configure-bots">Choose bot characters ↗</button>`+section('ONLINE',ONLINE_FORMATS)+`<div class="room-mode-actions"><button class="button primary" data-action="online">Create a room</button><button class="button outline" data-action="join-online">Join a room</button></div>`;
+}
+function configureBots(){
+ const slots=Array.from({length:(MATCH_RULES[offlineFormat]?.size||1)*2},(_,id)=>id).filter(id=>id!==0);
+ openModal(`<span class="modal-eyebrow">BOT SETUP</span><h2 class="modal-title" id="modal-title">YOUR PRACTICE.</h2><p class="modal-description">Automatic bots match your character’s rarity. Choose any explicit style instead.</p><label class="field-label">Mode<select id="bot-mode" class="text-input">${Object.entries(GAME_FORMATS).filter(([id])=>id.startsWith('bot-')&&id!=='bot-team').map(([id,r])=>`<option value="${id}"${id===offlineFormat?' selected':''}>${r.name}</option>`).join('')}</select></label>${slots.map(id=>`<label class="field-label">${id%2?'Opponent':'Teammate'} ${Math.floor(id/2)+1}<select id="bot-character-${id}" class="text-input"><option value="">Automatic · same rarity</option>${orderedRoster.map(c=>`<option value="${c.id}"${offlineBots[id]===c.id?' selected':''}>${esc(c.name)}</option>`).join('')}</select></label>`).join('')}<button class="button primary full-button" data-action="start-configured-bots">Kick off</button>`);
+}
+
 const SPIN_ODDS = {
   normal: [['common', 44], ['rare', 30], ['epic', 15], ['legendary', 8.4], ['world class', 2.2], ['master', .4]],
   lucky: [['rare', 33], ['epic', 45], ['legendary', 13], ['world class', 7], ['master', 2]],
@@ -65,12 +73,15 @@ const rarityColors = { starter: '#85947c', common: '#83966f', rare: '#5796c0', e
 const titles = { none: 'THE GAME.', manmarker: 'THE DEFENSE.', ice: 'THE FREEZE.', powershooter: 'THE FINISH.', ninja: 'THE SHADOWS.', playmaker: 'THE VISION.', falcon: 'THE SKY.', streetdribbler: 'THE RHYTHM.', magician: 'THE MAGIC.', supersonic: 'THE SPEED.', trapper: 'THE CONTROL.', serpent: 'THE HUNT.', butterflydancer: 'THE SHOW.', emperor: 'THE THRONE.' };
 const stageWords = { none: 'ROOKIE', manmarker: 'DEFEND', ice: 'ICE COLD', powershooter: 'POWER', ninja: 'UNSEEN', playmaker: 'VISION', falcon: 'SOAR', streetdribbler: 'GINGA', magician: 'SPELLBOUND', supersonic: 'VELOCITY', trapper: 'TRAP', serpent: 'UNSTOPPABLE', butterflydancer: 'SHOWTIME', emperor: 'BOW BEFORE ME' };
 
-function save() { try { localStorage.setItem(storageKey, JSON.stringify(profile)); } catch { /* Play remains available without storage. */ } }
+let guestProgress=normaliseProgress(profile),usingAccount=false,roundReceipt=null;
+const gameAccount=createGameAccount({onChange({account}){if(account){if(!usingAccount)guestProgress=normaliseProgress(profile);usingAccount=true;Object.assign(profile,account.profile);}else if(usingAccount){Object.assign(profile,guestProgress);usingAccount=false;}const nav=$('#nav-admin');if(nav)nav.hidden=!account?.admin;updateWallet();if(currentScreen==='characters')renderCharacters();}});
+function updateWallet(){const wallet=$('#wallet-balance');if(wallet)wallet.textContent=`$${profile.money||0}${usingAccount?' · ACCOUNT':' · DEVICE'}`;}
+function save() { try { const guest=usingAccount?guestProgress:normaliseProgress(profile);localStorage.setItem(storageKey, JSON.stringify({...profile,...guest})); } catch { /* Play remains available without storage. */ } }
 function syncProfile() {
   $('#profile-name').textContent = profile.name;
   document.body.classList.toggle('no-motion', profile.reducedMotion);
   $$('.sound-button').forEach(button => { button.innerHTML = icon(profile.sound ? 'sound' : 'muted'); button.setAttribute('aria-label', profile.sound ? 'Mute sound' : 'Enable sound'); button.setAttribute('aria-pressed', String(profile.sound)); });
-  save();
+  updateWallet();save();
 }
 function sound(type = 'click') {
   if (!profile.sound) return;
@@ -78,7 +89,7 @@ function sound(type = 'click') {
     audioContext ||= new (window.AudioContext || window.webkitAudioContext)();
     if (audioContext.state === 'suspended') audioContext.resume();
     const now = audioContext.currentTime;
-    const notes = type === 'goal' ? [392, 494, 587, 784] : type === 'spin' ? [440, 554, 659] : type === 'kick' ? [100, 65] : type === 'save' ? [210, 145] : [560];
+    const notes = type === 'dlsi-shot' ? [65,35,22] : type==='dlsi-typing'?[940,1100,820,1200]:type==='dlsi-hum'?[90,95,100,105]:type === 'goal' ? [392, 494, 587, 784] : type === 'spin' ? [440, 554, 659] : type === 'kick' ? [100, 65] : type === 'save' ? [210, 145] : [560];
     notes.forEach((frequency, index) => {
       const oscillator = audioContext.createOscillator(), gain = audioContext.createGain();
       oscillator.type = type === 'kick' ? 'triangle' : 'sine';
@@ -160,11 +171,11 @@ function renderCharacters() {
   $('#selected-name').textContent = character.name.toUpperCase();
   const rarity = $('#selected-rarity'); rarity.textContent = character.rarity.toUpperCase(); rarity.style.background = `${rarityColors[character.rarity] || '#85947c'}20`; rarity.style.color = rarityColors[character.rarity];
   const equip = $('#equip-button'); equip.innerHTML = equipped ? `Equipped ${icon('check')}` : unlocked ? `Equip character ${icon('arrow')}` : `Locked ${icon('lock')}`; equip.disabled = equipped || !unlocked;
-  $('#spins-count').textContent = UNLIMITED_SPINS ? '∞' : profile.spins;
-  $('#spin-button').disabled = !UNLIMITED_SPINS && profile.spins <= 0;
-  $('#spin-button').innerHTML = UNLIMITED_SPINS || profile.spins > 0 ? `Spin for a character ${icon('arrow')}` : `All spins used ${icon('check')}`;
+  $('#spins-count').textContent = `$${profile.money||0}`;
+  $('#spin-button').disabled = profile.money < 35;const lucky=$('[data-action="lucky-spin"]');if(lucky)lucky.disabled=profile.money<95||profile.unlocked.length<5;
+  $('#spin-button').innerHTML = `Normal spin · $35 ${icon('arrow')}`;
   for (const type of ['normal', 'lucky']) $(`#${type}-spin-odds`).innerHTML = SPIN_ODDS[type].map(([rarity, chance]) => `<div><i style="--rarity:${rarityColors[rarity]}"></i>${esc(rarity)}<b>${chance}%</b></div>`).join('');
-  $('#character-skill-list').innerHTML = renderPlaybook(character);
+  $('#character-skill-list').innerHTML = renderPlaybook(character)+variantPanel(character);
   $('#roster-grid').innerHTML = orderedRoster.map(item => `<button class="roster-card ${item.id === selected ? 'selected' : ''} ${profile.unlocked.includes(item.id) ? '' : 'locked'}" data-action="select-character" data-character="${esc(item.id)}" style="--card-color:${rarityColors[item.rarity]}" aria-label="View ${esc(item.name)} moves${profile.unlocked.includes(item.id) ? '' : ', locked'}" aria-haspopup="dialog" aria-pressed="${item.id === selected}"><i class="card-rarity"></i>${profile.equipped === item.id ? '<span class="card-equipped">✓</span>' : profile.unlocked.includes(item.id) ? '' : '<svg class="card-lock" aria-hidden="true"><use href="#icon-lock"/></svg>'}<span class="card-art">${footballer(item, { small: true })}</span><span class="card-info"><b>${esc(item.name).toUpperCase()}</b><small>${esc(item.rarity)} · View moves ↗</small></span></button>`).join('');
 }
 
@@ -180,8 +191,8 @@ function renderPlaybook(character) {
   return skills + base + passive + awakened + '<button class="button outline playbook-guide-button" data-action="character-guide" aria-haspopup="dialog">See what every move does ↗</button>';
 }
 
-function guideVariants(character, awakened = false, ability = {}) {
-  const player = { character: character.id, ability: ['emperor', 'magician'].includes(character.id) ? { chemicalPartnerId: -1, ...ability } : ability };
+function guideVariants(character, awakened = false, ability = {}, previewDlsi=false) {
+  const player = { character: character.id,dlsi:previewDlsi?{moves:(QUESTS[character.id]||[]).map(()=>true),awakening:true}:selectedVariants(profile,character.id),overtimeAwakening:previewDlsi,awakened,awakeningLeft:awakened?1:0, ability: ['emperor', 'magician'].includes(character.id) ? { chemicalPartnerId: -1, ...ability } : ability };
   const withBall = getSkills(player, awakened, true), withoutBall = getSkills(player, awakened, false);
   return withBall.flatMap((skill, index) => {
     const alternate = withoutBall[index];
@@ -199,19 +210,20 @@ function characterGuide() {
     known.add(skill.name); return true;
   });
   const moveCards = list => list.map(skill => `<article class="guide-move"><header><kbd>${esc(skill.key)}</kbd><h4>${esc(skill.name)}</h4><small class="guide-cooldown">${skill.once ? 'Once per awakening' : `${skill.cooldown}s cooldown`}</small></header>${skill.condition ? `<small class="guide-condition">${esc(skill.condition)}</small>` : ''}<p>${esc(skill.description)}</p></article>`).join('');
+  const dlSkills=QUESTS[character.id]?[...guideVariants(character,false,{},true),...guideVariants(character,true,{dlChemicalAvailable:true,dlOpponentEmperorPresent:true},true),...guideVariants(character,false,{dlCalculated:1,dlLefty:0,dlFade:1,dlAccel:1,dlBlast:1,dlAssist:2},true),...guideVariants(character,false,{dlLefty:1,dlAccel:2},true)].filter((s,i,list)=>list.findIndex(t=>t.name===s.name)===i):[];
   const awakening = character.awakening;
   const awakeningRequirement = awakening?.requires === 'on-ball' ? 'Activate with the ball.' : awakening?.requires === 'off-ball' ? 'Activate without the ball.' : 'Activate with or without the ball.';
-  openModal(`<div class="character-guide"><div class="character-guide-heading"><div class="guide-portrait" aria-hidden="true">${footballer(character, { small: true })}</div><div><span class="modal-eyebrow">THE PLAYBOOK / MOVE GUIDE</span><h2 class="modal-title" id="modal-title" tabindex="-1" autofocus>${esc(character.name)}</h2><span class="guide-rarity">${esc(character.rarity)}</span></div></div><p class="modal-description">${esc(character.description)}</p>${unlocked ? '' : '<p class="guide-note">You can explore every move before unlocking this character.</p>'}<section class="guide-section"><h3>Moves</h3><div class="guide-moves">${moves.length ? moveCards(moves) : '<p class="modal-description">Characterless has no special moves. Use movement, tackle / dribble, and Ultrashot to play.</p>'}</div></section>${followups.length ? `<section class="guide-section"><h3>Unlocked follow-ups</h3><p class="guide-note">Use the same move key again when its follow-up appears.</p><div class="guide-moves">${moveCards(followups)}</div></section>` : ''}<section class="guide-section guide-ultrashot"><h3>Ultrashot · every character</h3><p>Only on-target shots that force a save or score add Ultrashot charge. Passes, misses, own goals and automatic-goal specials do not count. After 3 qualifying shots, hold F or the Ultrashot button and release for a boosted Curve Shot or Quick Shot. Normal mouse shots keep your earned charge until you choose to use it. Long shots can miss, and keepers can still save it.</p></section>${character.passive ? `<section class="guide-section guide-passive"><h3>Passive · ${esc(character.passive.name)}</h3><p>${esc(character.passive.description)}</p></section>` : ''}${awakening ? `<section class="guide-section guide-awakening"><h3>Awakening · ${esc(awakening.name)}</h3><p>Press E when ready. ${awakeningRequirement} Lasts ${awakening.duration} seconds.</p><p>${esc(awakening.description)}</p><div class="guide-moves">${moveCards(awakened)}</div></section>` : '<p class="guide-note">This character has no awakening.</p>'}<p class="guide-note">Moves that need a teammate are unavailable in 1v1.</p><footer class="guide-actions">${unlocked && profile.equipped !== character.id ? `<button class="button primary" data-action="equip-reveal" data-character="${esc(character.id)}">Equip ${esc(character.name)} ${icon('check')}</button>` : ''}<button class="button outline" data-action="close-modal">Back to characters</button></footer></div>`, true);
+  openModal(`<div class="character-guide"><div class="character-guide-heading"><div class="guide-portrait" aria-hidden="true">${footballer(character, { small: true })}</div><div><span class="modal-eyebrow">THE PLAYBOOK / MOVE GUIDE</span><h2 class="modal-title" id="modal-title" tabindex="-1" autofocus>${esc(character.name)}</h2><span class="guide-rarity">${esc(character.rarity)}</span></div></div><p class="modal-description">${esc(character.description)}</p>${unlocked ? '' : '<p class="guide-note">You can explore every move before unlocking this character.</p>'}<section class="guide-section"><h3>Moves</h3><div class="guide-moves">${moves.length ? moveCards(moves) : '<p class="modal-description">Characterless has no special moves. Use movement, tackle / dribble, and Ultrashot to play.</p>'}</div></section>${followups.length ? `<section class="guide-section"><h3>Unlocked follow-ups</h3><p class="guide-note">Use the same move key again when its follow-up appears.</p><div class="guide-moves">${moveCards(followups)}</div></section>` : ''}<section class="guide-section guide-ultrashot"><h3>Ultrashot · every character</h3><p>Only on-target shots that force a save or score add Ultrashot charge. Passes, misses, own goals and automatic-goal specials do not count. After 3 qualifying shots, hold F or the Ultrashot button and release for a boosted Curve Shot or Quick Shot. Normal mouse shots keep your earned charge until you choose to use it. Long shots can miss, and keepers can still save it.</p></section>${character.passive ? `<section class="guide-section guide-passive"><h3>Passive · ${esc(character.passive.name)}</h3><p>${esc(character.passive.description)}</p></section>` : ''}${awakening ? `<section class="guide-section guide-awakening"><h3>Awakening · ${esc(awakening.name)}</h3><p>Press E when ready. ${awakeningRequirement} Lasts ${awakening.duration} seconds.</p><p>${esc(awakening.description)}</p><div class="guide-moves">${moveCards(awakened)}</div></section>` : '<p class="guide-note">This character has no awakening.</p>'}${dlSkills.length?`<section class="guide-section"><h3>Destruction League I variants</h3><p>Preview every unlock. Each quest unlocks its own move; 300 league points unlock the awakening. Enable unlocked variants in the character menu.</p>${moveCards(dlSkills)}</section>`:''}<p class="guide-note">Moves that need a teammate are unavailable in 1v1.</p><footer class="guide-actions">${unlocked && profile.equipped !== character.id ? `<button class="button primary" data-action="equip-reveal" data-character="${esc(character.id)}">Equip ${esc(character.name)} ${icon('check')}</button>` : ''}<button class="button outline" data-action="close-modal">Back to characters</button></footer></div>`, true);
   previousFocus = $(`.roster-card[data-character="${character.id}"]`);
 }
 
 function matchModal() {
   queueFormat = null;
   const option = (format, action, badge) => `<button class="opponent-option" data-action="${action}" data-format="${format}"><span class="opponent-icon">${badge}</span><span><strong>${GAME_FORMATS[format].name}</strong><small>${GAME_FORMATS[format].detail}</small></span>${icon('arrow')}</button>`;
-  openModal(`<span class="modal-eyebrow">CHOOSE YOUR MATCH</span><h2 class="modal-title" id="modal-title">THE PITCH<br>IS YOURS.</h2><p class="modal-description">Play instantly against bots, find an online match, or build your own teams.</p><section class="match-section" aria-labelledby="offline-matches"><h3 id="offline-matches">Offline <span>PLAY INSTANTLY</span></h3>${option('bot-standard', 'play-bot', '1v1')}${option('bot-2v2', 'play-bot', '2v2')}</section><section class="match-section" aria-labelledby="online-matches"><h3 id="online-matches">Online <span>PLAY WITH PEOPLE</span></h3>${option('standard-1v1', 'queue-online', '1v1')}${option('standard-2v2', 'queue-online', '2v2')}<button class="opponent-option" data-action="online"><span class="opponent-icon">＋</span><span><strong>Create a room</strong><small>Customize human and bot teams, match length, and the goal target.</small></span>${icon('arrow')}</button><button class="button outline full-button" data-action="join-online">Join a room with a code ${icon('arrow')}</button></section><p class="modal-footnote">Playing as ${esc(profile.name)} · ${esc(characterOf(profile.equipped).name)}<br>Every team has an AI goalkeeper.</p>`);
+  openModal(`<span class="modal-eyebrow">CHOOSE YOUR MATCH</span><h2 class="modal-title" id="modal-title">THE PITCH<br>IS YOURS.</h2><p class="modal-description">Play instantly against bots, find an online match, or build your own teams.</p><section class="match-section" aria-labelledby="offline-matches"><h3 id="offline-matches">Offline <span>PLAY INSTANTLY</span></h3>${Object.entries(MATCH_RULES).filter(([id])=>id.startsWith('bot-')&&id!=='bot-team').map(([id,r])=>option(id,'play-bot',`${r.size}v${r.size}`)).join('')}</section><section class="match-section" aria-labelledby="online-matches"><h3 id="online-matches">Online <span>PLAY WITH PEOPLE</span></h3>${ONLINE_FORMATS.map(id=>option(id,'queue-online',`${MATCH_RULES[id].size}v${MATCH_RULES[id].size}`)).join('')}<button class="opponent-option" data-action="online"><span class="opponent-icon">＋</span><span><strong>Create a room</strong><small>Customize human and bot teams, match length, and the goal target.</small></span>${icon('arrow')}</button><button class="button outline full-button" data-action="join-online">Join a room with a code ${icon('arrow')}</button></section><p class="modal-footnote">Playing as ${esc(profile.name)} · ${esc(characterOf(profile.equipped).name)}<br>Every team has an AI goalkeeper.</p>`);
 }
 function helpModal() {
-  openModal(`<span class="modal-eyebrow">THE BASICS / A LITTLE KNOW-HOW</span><h2 class="modal-title" id="modal-title">LET YOUR FEET<br>DO THE TALKING.</h2><p class="modal-description">First to the ball. Last to give up. Outscore your opponent before the five-minute whistle.</p><div class="controls-grid"><div class="control-row"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span><span><strong>Move around the pitch</strong><small>Arrow keys work too. Carrying the ball slows you 20%.</small></span></div><div class="control-row"><span><kbd>⌖</kbd></span><span><strong>Aim with your mouse</strong><small>Point at the pitch to choose your shot direction. Optional Ctrl lock keeps the pointer in the game; Ctrl or Escape releases it. Long shots have more spread and can miss the goal.</small></span></div><div class="control-row"><span><kbd>CLICK</kbd></span><span><strong>Normal shot</strong><small>Hold the left mouse button or Shoot button to charge, then release. Full power takes about one second. Only on-target shots that force a save or score add Ultrashot charge. Normal shots never spend it.</small></span></div><div class="control-row"><span><kbd>F</kbd></span><span><strong>Ultrashot · 3 on-target shots</strong><small>When all 3 soccer balls are filled, hold F or the Ultrashot button, then release. This spends the charge on a Curve Shot or Quick Shot. An empty attempt adds no charge.</small></span></div><div class="control-row"><span><kbd>C</kbd></span><span><strong>Tackle or dribble</strong><small>Off-ball: slide to steal. On-ball: evade a tackle. Dribble recovers in ${ACTION_COOLDOWNS.dribble}s; tackle takes ${ACTION_COOLDOWNS.tackle}s.</small></span></div><div class="control-row"><span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd><kbd>5</kbd></span><span><strong>Character abilities</strong><small>Unlock a character to bring their moves to the pitch. Emperor’s chemical reaction moves to key 5 during awakening.</small></span></div><div class="control-row"><span><kbd>Q</kbd></span><span><strong>Pass to your teammate</strong><small>Use Q in team modes. Passing does not charge Ultrashot. Ground passes can be intercepted.</small></span></div><div class="control-row"><span><kbd>E</kbd></span><span><strong>Awaken your full potential</strong><small>Charges in 100 seconds. Some styles need possession.</small></span></div></div><p class="help-detail"><b>Pick your shooting spot.</b> Close, well-aimed shots are stronger chances. Normal and Ultra shots can still be saved. Earned instant-goal specials are the exceptions. Very distant shots and shots toward your own goal are unlikely to score.<br><b>Play the rebound.</b> The ball stays in play and bounces off the walls. Max-power shots and goalkeeper throws travel through the air. Dribble into a tackle to stun your rival. Teammate passing abilities require a team mode; trying them in 1v1 never spends their cooldown. Replays begin three seconds before the final shot, then play the shot at its original speed. Press Space to skip without releasing cursor lock. Online, only the scorer decides; against bots, you decide after either team scores. After online matches, everyone can choose Rematch in the same room.<br><b>On touch screens:</b> use the direction pad and action buttons. Drag on the pitch to aim.</p><button class="button primary full-button" data-action="close-modal">Got it. Game on. ${icon('arrow')}</button>`, true);
+  openModal(`<span class="modal-eyebrow">THE BASICS / A LITTLE KNOW-HOW</span><h2 class="modal-title" id="modal-title">LET YOUR FEET<br>DO THE TALKING.</h2><p class="modal-description">First to the ball. Last to give up. Outscore your opponent before the five-minute whistle.</p><div class="controls-grid"><div class="control-row"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span><span><strong>Move around the pitch</strong><small>Arrow keys work too. Carrying the ball slows you 20%.</small></span></div><div class="control-row"><span><kbd>⌖</kbd></span><span><strong>Aim with your mouse</strong><small>Point at the pitch to choose your shot direction. Optional Ctrl lock keeps the pointer in the game; Ctrl or Escape releases it. Long shots have more spread and can miss the goal.</small></span></div><div class="control-row"><span><kbd>CLICK</kbd></span><span><strong>Normal shot</strong><small>Hold the left mouse button or Shoot button to charge, then release. Power starts at 5 and rises by 12 each second, including fractional seconds. Only on-target shots that force a save or score add Ultrashot charge. Normal shots never spend it.</small></span></div><div class="control-row"><span><kbd>F</kbd></span><span><strong>Ultrashot · 3 on-target shots</strong><small>When all 3 soccer balls are filled, hold F or the Ultrashot button, then release. This spends the charge on a Curve Shot or Quick Shot. An empty attempt adds no charge.</small></span></div><div class="control-row"><span><kbd>C</kbd></span><span><strong>Tackle or dribble</strong><small>Off-ball: slide to steal. On-ball: evade a tackle. Dribble recovers in ${ACTION_COOLDOWNS.dribble}s; tackle takes ${ACTION_COOLDOWNS.tackle}s.</small></span></div><div class="control-row"><span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd><kbd>5</kbd></span><span><strong>Character abilities</strong><small>Unlock a character to bring their moves to the pitch. Emperor’s chemical reaction moves to key 5 during awakening.</small></span></div><div class="control-row"><span><kbd>Q</kbd></span><span><strong>Pass to your teammate</strong><small>Use Q in team modes. Passing does not charge Ultrashot. Ground passes can be intercepted.</small></span></div><div class="control-row"><span><kbd>E</kbd></span><span><strong>Awaken your full potential</strong><small>Charges in 100 seconds. Some styles need possession.</small></span></div></div><p class="help-detail"><b>Pick your shooting spot.</b> Close, well-aimed shots are stronger chances. Normal and Ultra shots can still be saved. Earned instant-goal specials are the exceptions. Very distant shots and shots toward your own goal are unlikely to score.<br><b>Play the rebound.</b> The ball stays in play and bounces off the walls. Max-power shots and goalkeeper throws travel through the air. Dribble into a tackle to stun your rival. Teammate passing abilities require a team mode; trying them in 1v1 never spends their cooldown. Replays show up to the last 25 seconds, including cinematics, at 2× speed. Press R to vote to skip; all human players must agree. Bots agree automatically. After online matches, everyone can choose Rematch in the same room.<br><b>On touch screens:</b> use the direction pad and action buttons. Drag on the pitch to aim.</p><button class="button primary full-button" data-action="close-modal">Got it. Game on. ${icon('arrow')}</button>`, true);
 }
 function profileModal() {
   openModal(`<span class="modal-eyebrow">YOUR NAME / YOUR REPUTATION</span><h2 class="modal-title" id="modal-title">MAKE A NAME<br>FOR YOURSELF.</h2><p class="modal-description">This is the name your rival sees on the pitch.</p><form id="profile-form"><label class="field-label" for="username-input">Player name</label><input id="username-input" class="text-input" name="username" maxlength="18" value="${esc(profile.name)}" required autofocus autocomplete="nickname"><button class="button primary" type="submit">Save player name ${icon('check')}</button></form>`);
@@ -221,17 +233,18 @@ function settingsModal() {
 }
 
 function customRoomControls() {
-  const select = (id, options, value) => `<select id="${id}" class="text-input">${options.map(([key, label]) => `<option value="${key}"${String(key) === String(value) ? ' selected' : ''}>${label}</option>`).join('')}</select>`;
-  const slot = (id, label) => `<label class="team-slot">${label}${select(`room-slot-${id}`, [['human', 'Friend'], ['bot', 'Bot'], ['empty', 'Empty']], customConfig.slots[id])}</label>`;
-  return `<div class="custom-teams"><fieldset><legend>Blue team</legend><div class="team-slot"><span>Player 1</span><strong>You · ${esc(profile.name)}</strong></div>${slot(2, 'Player 2')}</fieldset><fieldset><legend>Red team</legend>${slot(1, 'Player 1')}${slot(3, 'Player 2')}</fieldset></div><div class="custom-settings"><label>Match length${select('room-duration', [[120, '2 minutes'], [300, '5 minutes'], [600, '10 minutes']], customConfig.duration)}</label><label>Goal target${select('room-score-limit', [[0, 'No goal target'], [3, 'First to 3'], [5, 'First to 5'], [10, 'First to 10']], customConfig.scoreLimit)}</label></div><p class="guide-note" id="custom-room-summary">${customConfig.slots.some((kind, id) => id % 2 === 1 && kind !== 'empty') ? customRoomSummary() : 'Add a friend or bot to the red team.'}</p><p class="guide-note">Each side needs at least one player. Friends fill open human slots in order. Every side also gets a goalkeeper.</p><button class="button primary full-button" data-action="create-room" id="create-room-button"${customConfig.slots.some((kind, id) => id % 2 === 1 && kind !== 'empty') ? '' : ' disabled'}>Create custom room ${icon('arrow')}</button>`;
+ const select=(id,options,value,disabled=false)=>`<select id="${id}" class="text-input"${disabled?' disabled':''}>${options.map(([key,label])=>`<option value="${key}"${String(key)===String(value)?' selected':''}>${esc(label)}</option>`).join('')}</select>`;
+ const slot=(id,label)=>`<label class="team-slot">${label}${id===0?`<strong>You · ${esc(profile.name)}</strong>`:select(`room-slot-${id}`,[['human','Friend'],['bot','Bot'],['empty','Empty']],customConfig.slots[id]||'empty')}${customConfig.slots[id]==='bot'?select(`room-bot-${id}`,[['','Automatic · balanced rarity'],...orderedRoster.map(c=>[c.id,c.name])],customConfig.botCharacters?.[id]||''):''}</label>`;
+ return `<div class="custom-teams"><fieldset><legend>Blue team</legend>${slot(0,'Player 1')}${slot(2,'Player 2')}${slot(4,'Player 3')}</fieldset><fieldset><legend>Red team</legend>${slot(1,'Player 1')}${slot(3,'Player 2')}${slot(5,'Player 3')}</fieldset></div><div class="custom-settings"><label>Rules${select('room-variant',[['standard','Standard'],['raw','Raw Skill'],['penalties','Penalties']],customConfig.variant||'standard')}</label><label>Match length${select('room-duration',[[120,'2 minutes'],[180,'3 minutes'],[300,'5 minutes'],[600,'10 minutes']],customConfig.variant==='raw'?180:customConfig.duration,customConfig.variant==='raw')}</label><label>Goal target${select('room-score-limit',[[0,'No goal target'],[3,'First to 3'],[5,'First to 5'],[10,'First to 10']],customConfig.scoreLimit,customConfig.variant&&customConfig.variant!=='standard')}</label></div><p id="custom-room-summary" class="guide-note">${customConfig.slots.some((k,id)=>id%2===1&&k!=='empty')?customRoomSummary():'Add a friend or bot to the red team.'}</p><p class="guide-note">Up to three per side. Penalties allows one per side. Raw Skill is characterless and always three minutes.</p><button class="button primary full-button" data-action="create-room" id="create-room-button"${customConfig.slots.some((k,id)=>id%2===1&&k!=='empty')?'':' disabled'}>Create custom room ↗</button>`;
 }
+
 function customRoomSummary() {
   const describe = team => customConfig.slots.map((kind, id) => ({kind, id})).filter(item => item.id % 2 === team && item.kind !== 'empty').map(item => item.id === 0 ? 'You' : item.kind === 'bot' ? 'Bot' : 'Friend').join(' + ') || 'Empty team';
   return `${describe(0)} vs ${describe(1)} · ${customConfig.duration / 60} minutes${customConfig.scoreLimit ? ` · First to ${customConfig.scoreLimit}` : ''}`;
 }
 function onlineModal(tab = 'create') {
   roomLobby = null; queueFormat = null; onlineFormat = 'custom';
-  openModal(`<span class="modal-eyebrow">ONLINE / CUSTOM ROOMS</span><h2 class="modal-title" id="modal-title">YOUR ROOM.<br>YOUR RULES.</h2><p class="modal-description">Choose your teams and share a 4-character code. For public matchmaking, choose 1v1 or 2v2 in Online.</p><div class="modal-tabs"><button class="modal-tab ${tab === 'create' ? 'active' : ''}" data-action="online-create-tab">Create a room</button><button class="modal-tab ${tab === 'join' ? 'active' : ''}" data-action="online-join-tab">Join a room</button></div><div id="online-panel">${tab === 'create' ? customRoomControls() : `<form id="join-form"><label class="field-label" for="room-code-input">Room code</label><input class="text-input" id="room-code-input" name="code" placeholder="A7B2" maxlength="4" minlength="4" pattern="[A-Za-z0-9]{4}" autocomplete="off" autocapitalize="characters" spellcheck="false" required autofocus><button class="button primary" type="submit" id="join-room-button">Join room ${icon('arrow')}</button></form>`}</div><div id="room-lobby" class="room-lobby" aria-live="polite"></div><div class="room-status" id="room-status" role="status"><span class="live-dot"></span><span>Keep this page open while your friends join.</span></div>`);
+  openModal(`<span class="modal-eyebrow">ONLINE / CUSTOM ROOMS</span><h2 class="modal-title" id="modal-title">YOUR ROOM.<br>YOUR RULES.</h2><p class="modal-description">Choose your teams and share a 4-character code. For public matchmaking, choose a queue in Online.</p><div class="modal-tabs"><button class="modal-tab ${tab === 'create' ? 'active' : ''}" data-action="online-create-tab">Create a room</button><button class="modal-tab ${tab === 'join' ? 'active' : ''}" data-action="online-join-tab">Join a room</button></div><div id="online-panel">${tab === 'create' ? customRoomControls() : `<form id="join-form"><label class="field-label" for="room-code-input">Room code</label><input class="text-input" id="room-code-input" name="code" placeholder="A7B2" maxlength="4" minlength="4" pattern="[A-Za-z0-9]{4}" autocomplete="off" autocapitalize="characters" spellcheck="false" required autofocus><button class="button primary" type="submit" id="join-room-button">Join room ${icon('arrow')}</button></form>`}</div><div id="room-lobby" class="room-lobby" aria-live="polite"></div><div class="room-status" id="room-status" role="status"><span class="live-dot"></span><span>Keep this page open while your friends join.</span></div>`);
 }
 function renderRoomLobby(lobby) {
   roomLobby = lobby;
@@ -240,7 +253,7 @@ function renderRoomLobby(lobby) {
   element.innerHTML = `<b>${GAME_FORMATS[lobby.gameFormat]?.name || 'Online match'} · ${lobby.connectedHumans} / ${lobby.requiredHumans} players</b><div class="lobby-players">${(lobby.players || []).map(player => `<div data-team="${player.team}"><span>${player.team === 0 ? 'BLUE' : 'RED'}${player.isBot ? ' · BOT' : ''}</span><strong>${esc(player.name)}</strong><small>${esc(characterOf(player.character).name)}</small></div>`).join('')}</div><p>${lobby.connectedHumans < lobby.requiredHumans ? queued ? 'Searching for more players. You can cancel at any time.' : 'Waiting for the rest of the players. Share this room code with your friends.' : 'Everyone is here. Starting the match…'}</p>${lobby.settings ? `<p>${Math.round(lobby.settings.duration / 60)} minutes${lobby.settings.scoreLimit ? ` · First to ${lobby.settings.scoreLimit}` : ''}</p>` : ''}`;
 }
 async function startQueue(format) {
-  if (!['standard-1v1', 'standard-2v2'].includes(format)) return;
+  if (!ONLINE_FORMATS.includes(format)) return;
   closeOnline(); queueFormat = format;
   openModal(`<span class="modal-eyebrow">ONLINE / MATCHMAKING</span><h2 class="modal-title" id="modal-title">FINDING YOUR<br>${format === 'standard-1v1' ? 'RIVAL.' : 'TEAM.'}</h2><p class="modal-description">${GAME_FORMATS[format].name} · Waiting for ${GAME_FORMATS[format].humans} real players. The match starts automatically when everyone connects.</p><div id="online-panel"><p class="queue-search"><span class="live-dot"></span>Searching for players…</p></div><div id="room-lobby" class="room-lobby" aria-live="polite"></div><div class="room-status" id="room-status" role="status"></div><button class="button outline full-button" data-action="cancel-queue">Cancel search ${icon('close')}</button>`);
   const session = newOnlineSession();
@@ -284,7 +297,7 @@ function newOnlineSession() {
     onDisconnect(event) {
       if (online !== session) return;
       if (currentScreen === 'game') {
-        game?.stop();
+        game?.stop();if(game)void settleRound({score:game.state.score,players:game.state.players},{opponentAbandoned:true});
         openModal(`<span class="modal-eyebrow">CONNECTION / FINAL WHISTLE</span><h2 class="modal-title" id="modal-title">RIVAL<br>DISCONNECTED.</h2><p class="modal-description">${esc(event.message || 'The connection to your rival ended. Create a new room to play again.')}</p><button class="button primary full-button" data-action="leave">Back to the menu ${icon('arrow')}</button>`);
       } else {
         pendingOnline = false;
@@ -301,7 +314,7 @@ function newOnlineSession() {
       }
     },
   });
-  online = session;
+  session.selectedVariants=selectedVariants(profile,profile.equipped);online = session;
   return session;
 }
 async function createRoom() {
@@ -341,15 +354,11 @@ function spinRarity(lucky, roll = Math.random() * 100) {
   let total = 0; const odds = SPIN_ODDS[lucky ? 'lucky' : 'normal'];
   return odds.find(([, chance]) => { total += chance; return roll < total; })?.[0] || odds.at(-1)[0];
 }
-function spin(lucky = false) {
-  if ((!UNLIMITED_SPINS && profile.spins <= 0) || spinning) return;
-  const rarity = spinRarity(lucky);
-  const pool = ROSTER.filter(character => character.rarity === rarity);
-  const result = pool[Math.floor(Math.random() * pool.length)];
-  const duplicate = profile.unlocked.includes(result.id);
-  if (!UNLIMITED_SPINS) profile.spins -= 1;
-  if (!duplicate) profile.unlocked.push(result.id);
-  save(); renderCharacters();
+async function spin(lucky = false) {
+  if (spinning) return;let purchase;spinning=true;
+  try {if(usingAccount){purchase=await gameAccount.mutate('spin',{type:lucky?'lucky':'normal'});}else{purchase=buySpin(profile,lucky?'lucky':'normal',()=>{const rarity=spinRarity(lucky),pool=ROSTER.filter(c=>c.rarity===rarity);return pool[Math.floor(Math.random()*pool.length)].id;});Object.assign(profile,purchase.progress);save();} }
+  catch(e){spinning=false;toast(e.message);return;}
+  const result=characterOf(purchase.id),duplicate=purchase.duplicate;updateWallet();renderCharacters();
   openModal(`<div class="spin-reveal"><span class="modal-eyebrow">A NEW POSSIBILITY / LET IT ROLL</span><h2 class="modal-title" id="modal-title">FIND YOUR<br>GAME CHANGER.</h2><div class="spin-reel"><div id="spin-reel-name">MANMARKER</div><p>${lucky ? 'LUCKY SPIN · RARE OR BETTER' : 'NORMAL SPIN · EVERY STYLE POSSIBLE'}</p></div></div>`);
   spinning = true;
   $('#modal .modal-close').disabled = true;
@@ -358,7 +367,7 @@ function spin(lucky = false) {
     clearInterval(spinTimer); spinTimer = null; spinning = false;
     $('#modal .modal-close').disabled = false;
     selected = result.id; renderCharacters(); sound('spin');
-    $('#modal-content').innerHTML = `<div class="spin-reveal" style="--reveal-color:${rarityColors[result.rarity]}40"><span class="modal-eyebrow">${duplicate ? 'A FAMILIAR FACE / ALREADY UNLOCKED' : 'NEW CHARACTER / A NEW WAY TO PLAY'}</span><h2 class="modal-title" id="modal-title">${esc(result.name).toUpperCase()}</h2><span class="rarity-tag" style="color:${rarityColors[result.rarity]};background:${rarityColors[result.rarity]}20">${esc(result.rarity).toUpperCase()}</span><div class="reveal-art">${footballer(result)}</div><p class="modal-description">${esc(result.tip)}<br>${UNLIMITED_SPINS ? lucky ? 'Unlimited lucky spins available' : 'Unlimited spins available' : `${profile.spins} ${profile.spins === 1 ? 'spin' : 'spins'} remaining`}${duplicate ? ' · Duplicate character' : ''}</p><div class="spin-result-actions">${UNLIMITED_SPINS || profile.spins > 0 ? `<button class="button primary" data-action="spin-again" data-spin="${lucky ? 'lucky' : 'normal'}">Spin again ${icon('arrow')}</button>` : ''}<button class="button outline" data-action="equip-reveal" data-character="${esc(result.id)}">Equip ${esc(result.name)} ${icon('check')}</button></div><button class="text-button" style="margin:7px auto 0" data-action="close-modal">Back to the roster</button></div>`;
+    $('#modal-content').innerHTML = `<div class="spin-reveal" style="--reveal-color:${rarityColors[result.rarity]}40"><span class="modal-eyebrow">${duplicate ? 'A FAMILIAR FACE / ALREADY UNLOCKED' : 'NEW CHARACTER / A NEW WAY TO PLAY'}</span><h2 class="modal-title" id="modal-title">${esc(result.name).toUpperCase()}</h2><span class="rarity-tag" style="color:${rarityColors[result.rarity]};background:${rarityColors[result.rarity]}20">${esc(result.rarity).toUpperCase()}</span><div class="reveal-art">${footballer(result)}</div><p class="modal-description">${esc(result.tip)}<br>$${profile.money} remaining${duplicate ? ' · Duplicate character' : ''}</p><div class="spin-result-actions">${profile.money >= (lucky?95:35) ? `<button class="button primary" data-action="spin-again" data-spin="${lucky ? 'lucky' : 'normal'}">Spin again ${icon('arrow')}</button>` : ''}<button class="button outline" data-action="equip-reveal" data-character="${esc(result.id)}">Equip ${esc(result.name)} ${icon('check')}</button></div><button class="text-button" style="margin:7px auto 0" data-action="close-modal">Back to the roster</button></div>`;
     $('#modal-content .button')?.focus();
   };
   if (profile.reducedMotion) { setTimeout(reveal, 200); return; }
@@ -370,7 +379,9 @@ function spin(lucky = false) {
   }, 105);
 }
 
-function startMatch(mode = 'bot', connection = null) {
+async function startMatch(mode = 'bot', connection = null) {
+  if(gameAccount.current?.banned){banModal();return;}
+  if(gameAccount.pending){toast('Resolve your pending account operation before another match.');return;}
   if (mode === 'bot') closeOnline();
   closeModal({ keepOnline: true, resume: false });
   game?.stop(); gameMode = mode; localTeam = connection?.localTeam || 0; localPlayerId = connection?.localPlayerId ?? localTeam; hudSignature = null; lastNetworkState = 0; lastState = null;
@@ -379,20 +390,24 @@ function startMatch(mode = 'bot', connection = null) {
   $('#hud-character').textContent = character.name.toUpperCase(); $('#hud-name').textContent = profile.name;
   $('#hud-rarity').textContent = character.rarity.toUpperCase(); $('#hud-rarity').style.color = rarityColors[character.rarity]; $('#hud-rarity').style.background = `${rarityColors[character.rarity]}25`;
   const format = connection?.gameFormat || (mode === 'bot' ? offlineFormat : 'standard-1v1');
-  const teamMatch = connection?.players ? connection.players.filter(player => player.team === localTeam).length > 1 : ['bot-2v2', 'standard-2v2'].includes(format);
+  const rule=rulesFor(format,connection?.settings||{});roundReceipt={id:crypto.randomUUID(),character:['raw','penalties','penalty-practice'].includes(rule.variant)?'none':profile.equipped,format,settled:false,account:usingAccount};
+
+  const teamMatch = connection?.players ? connection.players.filter(player => player.team === localTeam).length > 1 : rule.size>1;
   $('#blue-name').textContent = localTeam === 0 ? teamMatch ? 'YOUR TEAM' : 'YOU' : 'RIVALS'; $('#red-name').textContent = localTeam === 1 ? teamMatch ? 'YOUR TEAM' : 'YOU' : mode === 'bot' || format === 'bot-team' ? 'RIVAL AI' : 'RIVALS';
   $('#phase-banner').hidden = true; $('#cutscene-caption').hidden = true; $('#replay-label').hidden = true;
   $('#skip-replay').hidden = true;
   $('#awakening-status').hidden = true; $('#awakening-announcement').hidden = true;
+  const seed=connection?.seed||crypto.randomUUID().replaceAll('-','');
   game = new Game($('#game-canvas'), {
-    mode, gameFormat: format, players: connection?.players, settings: connection?.settings, character: profile.equipped, username: profile.name, localTeam, localPlayerId,
-    opponentCharacter: remote?.character,
+    mode,seed,recordAudit:mode!=='guest',dlsi:selectedVariants(profile,profile.equipped), gameFormat: format, players: connection?.players, settings: connection?.settings, character: profile.equipped, username: profile.name, localTeam, localPlayerId,
+    opponentCharacter: remote?.character,botCharacters:offlineBots,
     opponentUsername: remote?.username || 'RIVAL AI',
     onState: updateHUD,
     onInput(input) { if (mode === 'guest') online?.sendInput(input); },
-    onEvent(event) { if (['kick', 'goal', 'save'].includes(event.type)) sound(event.type); },
+    onEvent(event) { if (['kick', 'goal', 'save','dlsi-shot','dlsi-typing','dlsi-hum'].includes(event.type)) sound(event.type); },
     onEnd: matchEnded,
   });
+  if(usingAccount){try{const players=game.state.players.map(p=>({id:p.id,team:p.team,character:p.character,name:p.name,isBot:p.isBot,dlsi:p.dlsi}));await gameAccount.mutate('start',{matchId:roundReceipt.id,format,settings:connection?.settings||{},character:roundReceipt.character,seed,players,localPlayerId});}catch(e){toast(e.message);showScreen('home');return;}}
   game.start(); $('#game-canvas').focus(); updateHUD(game.getState());
 }
 
@@ -435,7 +450,7 @@ function updateHUD(state) {
   lastState = state;
   if (online?.role === 'host' && performance.now() - lastNetworkState >= 48) { lastNetworkState = performance.now(); online.sendState(game.exportState()); }
   $('#blue-score').textContent = state.score?.[0] || 0; $('#red-score').textContent = state.score?.[1] || 0;
-  const seconds = Math.max(0, Math.ceil(state.time || 0)); $('#match-time').textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+  const seconds = Math.max(0, Math.ceil(state.time || 0)); $('#match-time').textContent = state.penalty?(state.penalty.phase==='tiebreak'?'SUDDEN DEATH':`PK ${Math.min(state.penalty.max,(state.penalty.attempts[state.penalty.turnTeam]||0)+1)}/${state.penalty.max}`):state.overtime?'OT':`${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
   updateAwakeningStatus(state);
   const player = state.players?.find(item => item.id === localPlayerId); if (!player) return;
   const reactionNotice = $('#chemical-notice');
@@ -487,6 +502,7 @@ function updateHUD(state) {
 }
 function updateReplayControl(state) {
   const button = $('#skip-replay');
+  const votes=state.replayVotes||[],required=state.players?.filter(p=>!p.isBot).length||1;button.disabled=votes.includes(localPlayerId);button.innerHTML=`<kbd>R</kbd> Skip replay${votes.length?` · ${votes.length}/${required}`:''}`;
   button.hidden = game?.canSkipReplay ? !game.canSkipReplay(localPlayerId) : !['celebrate', 'replay'].includes(state.phase) || (state.scorer != null ? state.scorer !== localPlayerId : state.scorerTeam !== localTeam);
 }
 function updateAwakeningStatus(state) {
@@ -512,9 +528,9 @@ function matchEnded(result) {
   // Send the final frame before stopping the host so the rival also reaches full time.
   if (online?.role === 'host' && game?.exportState) online.sendState(game.exportState());
   game?.stop();
-  const score = result.score || [0, 0], player = result.players?.find(item => item.id === localPlayerId), myScore = score[localTeam], theirScore = score[1 - localTeam];
-  openModal(`<span class="modal-eyebrow">FULL TIME / LEAVE IT ALL ON THE PITCH</span><h2 class="modal-title" id="modal-title">${myScore > theirScore ? 'THAT’S YOUR<br>GAME.' : myScore < theirScore ? 'EVERY RIVALRY<br>NEEDS A REMATCH.' : 'NOTHING<br>BETWEEN YOU.'}</h2><div class="result-score">${score[0]} <span style="color:#b8c4ac;font-size:50px">:</span> ${score[1]}</div><div class="result-stats"><b>${player?.stats?.goals || 0}<small>YOUR GOALS</small></b><b>${player?.stats?.assists || 0}<small>YOUR ASSISTS</small></b></div><button class="button primary full-button" id="rematch-button" data-action="rematch">Rematch ${icon('arrow')}</button><p id="rematch-status" class="rematch-status" role="status" aria-live="polite">${gameMode === 'bot' ? 'Play another match right away.' : 'Same rival. Same room. No code needed.'}</p><button class="button outline full-button" data-action="leave">Back to menu ${icon('arrow')}</button>`);
-  online?.markRoundEnded();
+  const score = result.score || [0, 0], player = result.players?.find(item => item.id === localPlayerId), myScore = score[localTeam], theirScore = score[1 - localTeam],won=result.winnerTeam==null?myScore>theirScore:result.winnerTeam===localTeam,lost=result.winnerTeam==null?myScore<theirScore:!won;
+  openModal(`<span class="modal-eyebrow">FULL TIME / LEAVE IT ALL ON THE PITCH</span><h2 class="modal-title" id="modal-title">${result.practice?'PRACTICE<br>COMPLETE.':won ? 'THAT’S YOUR<br>GAME.' : lost ? 'EVERY RIVALRY<br>NEEDS A REMATCH.' : 'NOTHING<br>BETWEEN YOU.'}</h2><div class="result-score">${score[0]} <span style="color:#b8c4ac;font-size:50px">:</span> ${score[1]}</div><p id="match-earnings" role="status">Settling match…</p><div class="result-stats"><b>${player?.stats?.goals || 0}<small>YOUR GOALS</small></b><b>${player?.stats?.assists || 0}<small>YOUR ASSISTS</small></b></div><button class="button primary full-button" id="rematch-button" data-action="rematch">Rematch ${icon('arrow')}</button><p id="rematch-status" class="rematch-status" role="status" aria-live="polite">${gameMode === 'bot' ? 'Play another match right away.' : 'Same rival. Same room. No code needed.'}</p><button class="button outline full-button" data-action="leave">Back to menu ${icon('arrow')}</button>`);
+  void settleRound(result);online?.markRoundEnded();
 }
 function updateRematchStatus({ localReady = false, remoteReady = false, readyCount = 0, requiredCount = 2 } = {}) {
   if (game?.getState?.().phase !== 'ended') return;
@@ -529,6 +545,7 @@ function requestRematch() {
   if (!online?.requestRematch()) toast('The room is no longer connected. Return to the menu to start a new match.');
 }
 function leaveMatch() {
+  if(roundReceipt&&!roundReceipt.settled&&game)void settleRound({score:game.state.score,players:game.state.players},{abandoned:true});
   game?.stop(); game = null; gameMode = null; lastState = null; closeOnline(); modalPausedGame = false;
   closeModal({ resume: false }); showScreen('home');
 }
@@ -567,9 +584,16 @@ document.addEventListener('click', event => {
   else if (action === 'close-modal') closeModal();
   else if (action === 'select-character') { selected = button.dataset.character; renderCharacters(); characterGuide(); }
   else if (action === 'character-guide') characterGuide();
-  else if (action === 'equip' || action === 'equip-reveal') { const id = button.dataset.character || selected; if (profile.unlocked.includes(id)) { profile.equipped = id; selected = id; save(); renderCharacters(); if (action === 'equip-reveal') closeModal(); toast(`${characterOf(id).name} equipped. Your move.`); } }
+  else if (action === 'equip' || action === 'equip-reveal') {void equipStyle(button.dataset.character||selected,action==='equip-reveal');}
   else if (action === 'spin' || action === 'spin-again' || action === 'lucky-spin') spin(action === 'lucky-spin' || button.dataset.spin === 'lucky');
-  else if (action === 'play-bot') { offlineFormat = button.dataset.format === 'bot-2v2' ? 'bot-2v2' : 'bot-standard'; startMatch('bot'); }
+  else if (action === 'play-bot') { offlineFormat = button.dataset.format?.startsWith('bot-')&&MATCH_RULES[button.dataset.format]?button.dataset.format:'bot-standard'; startMatch('bot'); }
+  else if (action === 'configure-bots') configureBots();
+  else if (action === 'start-configured-bots') startMatch('bot');
+  else if (action === 'update-log') showUpdateLog();
+  else if(action==='dlsi')void leagueModal();
+  else if(action==='admin')void adminModal();
+  else if(action==='dismiss-appeal')void dismissAppeal(button.dataset.id);
+  else if(action==='retry-account')void retryAccount();
   else if (action === 'online') { closeOnline(); onlineModal(); }
   else if (action === 'queue-online' || action === 'online-mode') startQueue(button.dataset.format);
   else if (action === 'cancel-queue') { closeOnline(); queueFormat = null; matchModal(); }
@@ -596,14 +620,22 @@ document.addEventListener('click', event => {
   else if (action === 'fullscreen') { if (document.fullscreenElement) document.exitFullscreen?.(); else $('#game-screen').requestFullscreen?.().catch(() => toast('Fullscreen is not available in this browser.')); }
 });
 document.addEventListener('submit', event => {
+  if(event.target.id==='admin-command-form'){event.preventDefault();void submitAdmin();return;}
+  if(event.target.id==='ban-reason-form'){event.preventDefault();void submitAdmin($('#ban-command').value,$('#ban-reason').value);return;}
+  if(event.target.id==='appeal-form'){event.preventDefault();void sendAppeal();return;}
   if (event.target.id === 'profile-form') { event.preventDefault(); const name = $('#username-input').value.trim().replace(/[<>]/g, '').slice(0, 18); if (!name) { $('#username-input').setCustomValidity('Choose a player name.'); $('#username-input').reportValidity(); return; } profile.name = name; syncProfile(); closeModal(); toast('Player name saved. Make it known.'); }
   if (event.target.id === 'join-form') { event.preventDefault(); joinRoom($('#room-code-input').value.trim()); }
 });
 document.addEventListener('input', event => { if (event.target.id === 'username-input') event.target.setCustomValidity(''); if (event.target.id === 'room-code-input') event.target.value = event.target.value.toUpperCase(); });
 document.addEventListener('change', event => {
+  if(event.target.dataset.variant){void changeVariant(event.target.dataset.variant,event.target.dataset.slot,event.target.checked);return;}
+  if(event.target.id==='room-variant'){customConfig.variant=event.target.value;if(customConfig.variant==='raw')customConfig.duration=180;if(customConfig.variant==='penalties'){customConfig.slots=customConfig.slots.map((k,id)=>id<2?k:'empty');for(const id of Object.keys(customConfig.botCharacters||{}))if(customConfig.slots[id]!=='bot')delete customConfig.botCharacters[id];}customConfig.scoreLimit=0;$('#online-panel').innerHTML=customRoomControls();return;}
+  if(event.target.id?.startsWith('room-bot-')){customConfig.botCharacters||={};const id=Number(event.target.id.slice(9));if(event.target.value)customConfig.botCharacters[id]=event.target.value;else delete customConfig.botCharacters[id];return;}
+  if(event.target.id==='bot-mode'){offlineFormat=event.target.value;configureBots();return;}
+  if(event.target.id?.startsWith('bot-character-')){const id=Number(event.target.id.slice(14));if(event.target.value)offlineBots[id]=event.target.value;else delete offlineBots[id];return;}
   if (event.target.id === 'sound-setting') { profile.sound = event.target.checked; syncProfile(); sound(); }
   if (event.target.id === 'motion-setting') { profile.reducedMotion = event.target.checked; syncProfile(); }
-  if (/^room-slot-[123]$/.test(event.target.id)) customConfig.slots[Number(event.target.id.at(-1))] = event.target.value;
+  if (/^room-slot-[12345]$/.test(event.target.id)){const id=Number(event.target.id.at(-1));customConfig.slots[id]=event.target.value;if(event.target.value!=='bot')delete customConfig.botCharacters[id];$('#online-panel').innerHTML=customRoomControls();}
   if (event.target.id === 'room-duration') customConfig.duration = Number(event.target.value);
   if (event.target.id === 'room-score-limit') customConfig.scoreLimit = Number(event.target.value);
   if (/^room-(slot-|duration|score-limit)/.test(event.target.id)) {
@@ -631,3 +663,35 @@ $$('[data-touch]').forEach(button => {
 });
 window.addEventListener('pagehide', () => { game?.stop(); online?.close(); });
 syncProfile(); renderPitch(); renderCharacters(); showScreen('home');
+void gameAccount.refresh();window.addEventListener('focus',()=>{if(currentScreen!=='game')void gameAccount.refresh();});
+
+renderModes();
+
+function showUpdateLog(){openModal(`<span class="modal-eyebrow">REMATCH RUSH / UPDATE LOG</span><h2 class="modal-title" id="modal-title">DESTRUCTION LEAGUE I</h2><div class="release-notes"><h3>Football & presentation</h3><p>12 power per second. Equal-power backward kicks. Cleaner light grass and larger controls below the field. Faster travel, shorter stuns, improved keeper throws and wide back-pass clearances.</p><h3>Matches & replays</h3><p>3v3, Raw Skill, penalties and configurable teams. Unambiguous room codes. Last 25 seconds at 2×, including cinematic moves. All players press R to skip. Tied matches enter golden-goal overtime.</p><h3>Your playing style</h3><p>Earn game money, buy spins, complete character quests and unlock optional Destruction League moves. Stage I lasts two weeks; the lowest five characters leave the league leaderboard after the stage.</p></div><button class="button primary full-button" data-action="close-modal">Back to the pitch</button>`,true);}
+
+function variantPanel(character){
+ const quests=QUESTS[character.id];if(!quests)return '';
+ const unlocks=variantUnlocks(profile,character.id),data=profile.characters?.[character.id]||{},variants=selectedVariants(profile,character.id);
+ return `<section class="variant-panel"><h3>Destruction League I</h3><p>${data.points||0} / 300 points for awakening</p>${quests.map(([key,target,label],i)=>`<label><input type="checkbox" data-variant="${character.id}" data-slot="${i}"${variants.moves[i]?' checked':''}${unlocks.moves[i]?'':' disabled'}><span>DLSI move ${i+1}<small>${esc(label)} · ${Math.min(target,Math.floor(data[key]||0))}/${target}</small></span></label>`).join('')}<label><input type="checkbox" data-variant="${character.id}" data-slot="awakening"${variants.awakening?' checked':''}${unlocks.awakening?'':' disabled'}><span>DLSI awakening<small>${unlocks.awakening?'Unlocked · choose either version':'Earn 300 league points'}</small></span></label></section>`;
+}
+async function changeVariant(character,slot,enabled){try{const key=slot==='awakening'?slot:Number(slot);if(usingAccount)await gameAccount.mutate('variant',{character,slot:key,enabled});else{Object.assign(profile,toggleVariant(profile,character,key,enabled));save();}renderCharacters();toast('Move variant updated. Applies next match.');}catch(e){toast(e.message);renderCharacters();}}
+async function equipStyle(id,close){try{if(!profile.unlocked.includes(id))return;if(usingAccount)await gameAccount.mutate('equip',{character:id});else{profile.equipped=id;save();}selected=id;renderCharacters();if(close)closeModal();toast(`${characterOf(id).name} equipped.`);}catch(e){toast(e.message);}}
+async function settleRound(result,{abandoned=false,opponentAbandoned=false}={}){
+ const receipt=roundReceipt;if(!receipt||receipt.settled)return;receipt.settled=true;
+ const p=result.players?.find(p=>p.id===localPlayerId),args={matchId:receipt.id,character:receipt.character,team:localTeam,score:result.score,stats:p?.stats||{},format:receipt.format,abandoned,opponentAbandoned};
+ try{let reward;if(receipt.account){reward=await gameAccount.mutate('finish',{matchId:receipt.id,team:localTeam,score:result.score,audit:game?.audit||game?.state?.audit,stats:p?.stats||{},outcome:abandoned?'abandoned':opponentAbandoned?'opponent-left':'finished'});}else{reward=settleProgress(profile,args);Object.assign(profile,reward.progress);save();}updateWallet();const message=abandoned?'Abandoned · no money earned.':`+$${reward.money} · +${reward.points} league points${receipt.account?'':' on this device'}`;const el=$('#match-earnings');if(el)el.textContent=message;else if(opponentAbandoned)toast(message);}
+ catch(e){const el=$('#match-earnings');if(el){el.innerHTML=`${esc(e.message)} <button class="text-button" data-action="retry-account">Retry same operation</button>`;}else toast(e.message);}
+}
+async function retryAccount(){try{const r=await gameAccount.retry();if(r){updateWallet();const el=$('#match-earnings');if(el)el.textContent=r.money===undefined?'Account operation confirmed.':`+$${r.money} · +${r.points} league points`;toast('Account operation confirmed.');}else toast('No pending account operation.');}catch(e){toast(e.message);}}
+async function leagueModal(){
+ openModal('<span class="modal-eyebrow">DESTRUCTION LEAGUE / STAGE I</span><h2 class="modal-title" id="modal-title">EVERY STYLE.<br>ONE STAGE.</h2><p role="status" id="league-content">Loading league standings…</p>',true);
+ try{const {league}=await gameAccount.leaderboard();const el=$('#league-content');if(!el)return;el.outerHTML=`<div id="league-content"><p>Stage I · ${league.ended?'Finished':'Ends '+new Date(league.endsAt).toLocaleDateString()} · lowest five styles eliminated from league standings. All remain playable.</p><ol class="league-table">${league.rows.map(r=>`<li class="${r.eliminated?'eliminated':''}"><b>${r.rank}</b><span>${esc(characterOf(r.id).name)}${r.eliminated?' · eliminated':''}</span><strong>${r.points}</strong></li>`).join('')}</ol></div>`;}
+ catch{const el=$('#league-content');if(el)el.textContent='Global standings are unavailable. Your device quests and rewards remain saved separately.';}
+}
+async function adminModal(){if(!gameAccount.current?.admin){toast('Administrator access required.');return;}
+ openModal(`<span class="modal-eyebrow">REMATCH / ADMINISTRATION</span><h2 class="modal-title" id="modal-title">ADMIN PANEL</h2><form id="admin-command-form"><label class="field-label" for="admin-command">Command</label><input id="admin-command" class="text-input" maxlength="500" placeholder="/query username" required autocomplete="off"><button class="button primary" type="submit">Run command</button></form><p class="guide-note">/grant, /revoke, /check character-id username · /ban minutes username · /unban, /query username · /admin, /unadmin username. Ban 0 is infinite. /unban accepts an appeal.</p><p id="admin-result" role="status"></p><h3>Ban appeals</h3><div id="admin-appeals" role="status">Loading…</div>`,true);
+ try{const r=await gameAccount.mutate('appeals',{});const el=$('#admin-appeals');if(el)el.innerHTML=r.appeals.length?r.appeals.map(x=>`<article class="appeal"><h4>${esc(x.username)}</h4><p>${esc(x.message)}</p><button class="button outline" data-action="dismiss-appeal" data-id="${esc(x.id)}">Dismiss</button></article>`).join(''):'No unresolved appeals.';}catch(e){const el=$('#admin-appeals');if(el)el.textContent=e.message;}}
+async function submitAdmin(command=$('#admin-command')?.value,reason){if(/^\/ban\s/.test(command||'')&&reason===undefined){openModal(`<h2 id="modal-title" class="modal-title">BAN REASON</h2><form id="ban-reason-form"><input id="ban-command" type="hidden" value="${esc(command)}"><label class="field-label" for="ban-reason">Reason shown to the player</label><textarea id="ban-reason" class="text-input" maxlength="400" required></textarea><button class="button primary" type="submit">Apply ban</button></form>`);return;}try{const r=await gameAccount.mutate('admin',{command,...(reason===undefined?{}:{reason})});toast(r.value===undefined?'Command completed.':String(r.value));await adminModal();}catch(e){toast(e.message);}}
+async function dismissAppeal(appealId){try{await gameAccount.mutate('dismiss',{appealId});await adminModal();}catch(e){toast(e.message);}}
+function banModal(){const b=gameAccount.current?.banned;if(!b)return;openModal(`<span class="modal-eyebrow">ACCOUNT / BAN</span><h2 id="modal-title" class="modal-title">ACCOUNT BANNED</h2><p class="modal-description">${esc(b.reason)}</p><p>${b.minutes===0?'Infinite ban':`${b.minutes} minutes remaining`}</p><form id="appeal-form"><label class="field-label" for="appeal-message">Appeal</label><textarea id="appeal-message" class="text-input" maxlength="1000" required></textarea><button class="button primary" type="submit">Submit appeal</button></form>`);}
+async function sendAppeal(){try{await gameAccount.mutate('appeal',{message:$('#appeal-message').value});toast('Appeal submitted to the administrators.');closeModal();}catch(e){toast(e.message);}}

@@ -1,7 +1,7 @@
 import {giveBall} from './test-fixtures.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Game } from './game.js';
+import { Game,MOTION_PACE } from './game.js';
 import { ROSTER, getSkills, activateSkill, activateAwakening, tickAbilities } from './characters.js';
 
 function setup(character, owner = null) {
@@ -130,7 +130,7 @@ test('a successful velocity counter stuns the tackler and lowers cooldown to 10 
   assert.equal(player.recovery, 3);
   assert.equal(game.steal(enemy, player), false);
   assert.equal(game.state.ball.owner, 0);
-  assert.equal(enemy.stun, 2);
+  assert.equal(enemy.stun, 1.8);
   assert.equal(player.cooldowns[2], 10);
   assert.equal(player.recovery, 0);
   assert.equal(player.counter, 0);
@@ -155,7 +155,7 @@ test('Supersonic off-ball awakening takes possession but never grants move four'
   assert.equal(getSkills(player, true, false).length, 3);
   advance(game, 2.9);
   assert.equal(game.state.ball.owner, 0);
-  assert(enemy.stun >= 2.8);
+  assert(enemy.stun >= 2.5);
   assert.equal(getSkills(player, true, true).length, 3);
 });
 
@@ -235,7 +235,7 @@ test('Ice needs a teammate under the cursor and nutmegs a close opponent with pr
   player.aim = { x: mate.x + 70, y: mate.y };
   assert.equal(activateSkill(game, player, 0), false);
   assert.equal(activateSkill(game, player, 1), true);
-  assert.equal(enemy.stun, .5);
+  assert.equal(enemy.stun, .45);
   assert(player.invincible >= .8);
   assert.equal(player.motion.dribble, true);
   assert.equal(player.cooldowns[1], 20);
@@ -243,9 +243,9 @@ test('Ice needs a teammate under the cursor and nutmegs a close opponent with pr
   advance(game, .3);
   assert(game.state.ball.x > 700);
   assert.equal(game.state.ball.owner, null);
-  advance(game, .3);
-  assert.equal(game.state.ball.owner, null, 'the slowed nutmeg is still traveling at 0.6 real seconds');
-  advance(game, .05);
+  advance(game, .2);
+  assert.equal(game.state.ball.owner, null, 'the nutmeg has not reached its paced0.52-second route end');
+  advance(game, .04);
   assert.equal(game.state.ball.owner, player.id);
   assert(player.x > enemy.x);
 });
@@ -285,7 +285,7 @@ test('Ninja has an explicit invincible Precision burst follow-up and longer awak
   hidden.player.x = hidden.enemy.x; hidden.player.y = hidden.enemy.y;
   tickAbilities(hidden.game, hidden.player, .01);
   assert.equal(hidden.player.stealth, 0);
-  assert.equal(hidden.player.stun, 2);
+  assert.equal(hidden.player.stun, 1.8);
   assert.equal(hidden.game.state.ball.owner, hidden.enemy.id);
 });
 
@@ -323,9 +323,9 @@ test('Falcon aerial dribble regains possession and Sky domination never scores',
   const start = player.x;
   assert.equal(activateSkill(game, player, 2), true);
   assert.equal(game.state.ball.x, start + game.width / 3);
-  advance(game, .75);
+  advance(game, .65/MOTION_PACE-.02);
   assert.equal(game.state.ball.owner, null, 'Falcon cannot catch the ball before his paced dash finishes');
-  advance(game, .05);
+  advance(game, .04);
   assert.equal(game.state.ball.owner, player.id);
   assert.equal(player.x, start + game.width / 3);
   game.state.keepers[1].y=600;advance(game,.3);awakenDirectly(player);
@@ -356,7 +356,7 @@ test('Magician selects the farthest perfect-pass target and My Assist fires on r
   const far = addTeammate(game, player, { id: 'far', x: player.x + 300 });
   assert.equal(activateSkill(game, player, 1), true);
   assert.equal(game.state.ball.perfectPass.targetId, far.id);
-  advance(game, .6);
+  advance(game, .7);
   assert.equal(game.state.ball.owner, far.id);
   giveBall(game,player);
   player.aim = { x: game.width, y: game.height / 2 - 90 };
@@ -423,12 +423,12 @@ test('Trapper traps high shots and starts its shared cooldown when the leap ends
   game.state.ball.x = player.x + 50;
   tickAbilities(game, player, .01);
   assert.equal(game.state.ball.owner, player.id);
-  assert.equal(player.cooldowns[0], 20);
+  assert.equal(player.cooldowns[0], 25);
   assert.equal(player.recovery, 0);
   const missed = setup('trapper', 1);
   assert.equal(activateSkill(missed.game, missed.player, 0), true);
   advance(missed.game, 3.1);
-  assert(missed.player.cooldowns[0] > 19 && missed.player.cooldowns[0] <= 20);
+  assert(missed.player.cooldowns[0] > 24 && missed.player.cooldowns[0] <= 25);
 });
 
 test('three successful Fake Volleys unlock one Juggling Destroyer goal and misses reset the streak', () => {
@@ -436,15 +436,15 @@ test('three successful Fake Volleys unlock one Juggling Destroyer goal and misse
   for (let i = 1; i <= 3; i++) {
     assert.equal(activateSkill(game, player, 2), true);
     assert.equal(game.steal(enemy, player), false);
-    assert.equal(enemy.stun, 2);
+    assert.equal(enemy.stun, 1.8);
     assert.equal(player.ability.fakeVolleyStreak, i);
     assert.equal(player.cooldowns[2], 0);
   }
   assert.equal(getSkills(player, false, true)[2].name, 'Juggling Destroyer Shot');
   assert.equal(activateSkill(game, player, 2), true);
   assert.equal(player.cooldowns[2], 20);
-  advance(game, .6);
-  assert.equal(game.state.score[0], 0, 'the scripted ball flight also takes the slower world pace');
+  advance(game, .5);
+  assert.equal(game.state.score[0], 0, 'the scripted ball has not completed its paced flight');
   advance(game, .08);
   assert.equal(game.state.score[0], 1);
   const missed = setup('trapper', 0);
@@ -589,13 +589,13 @@ test('perfect-pass flight follows the slower world pace while its aura window us
   assert.equal(activateSkill(game,player,1),true);
   const flight = game.state.ball.perfectPass, duration = flight.duration;
   tickAbilities(game,player,.1);
-  assert.ok(Math.abs(flight.left-(duration-.085))<1e-9);
-  assert.ok(Math.abs(game.state.ball.x-(200+600*.085/duration))<1e-9);
+  assert.ok(Math.abs(flight.left-(duration-.1*MOTION_PACE))<1e-9);
+  assert.ok(Math.abs(game.state.ball.x-(200+600*.1*MOTION_PACE/duration))<1e-9);
   assert.ok(Math.abs(player.ability.auraLeft-.9)<1e-9,'the visual ability window still advances by the full real tenth of a second');
   assert.equal(player.ultraCharge,0,'passes never charge Ultra');
   tickAbilities(game,player,duration-.1);
   assert.equal(game.state.ball.owner,null,'the pass cannot snap to its receiver at the old unpaced deadline');
-  tickAbilities(game,player,duration/.85-duration+.001);
+  tickAbilities(game,player,duration/MOTION_PACE-duration+.001);
   assert.equal(game.state.ball.owner,mate.id);
 });
 
@@ -606,8 +606,8 @@ test('Ice nutmeg ball progress uses paced travel without stretching its follow-u
   const route = player.ability.nutmeg, origin = {...route.origin}, target = {...route.target};
   player.ability.precisionFollowup = 2;
   tickAbilities(game,player,.26);
-  assert.ok(Math.abs(route.left-(.52-.26*.85))<1e-9);
-  assert.ok(Math.abs(game.state.ball.x-(origin.x+(target.x-origin.x)*.425))<1e-9);
+  assert.ok(Math.abs(route.left-(.52-.26*MOTION_PACE))<1e-9);
+  assert.ok(Math.abs(game.state.ball.x-(origin.x+(target.x-origin.x)*(.26*MOTION_PACE/.52)))<1e-9);
   assert.ok(Math.abs(player.ability.precisionFollowup-1.74)<1e-9);
   tickAbilities(game,player,.26);
   assert.equal(game.state.ball.owner,null,'the ball stays on its paced route at the old travel deadline');
@@ -621,7 +621,7 @@ test('Falcon aerial-dribble and return travel deadlines match paced motion rathe
   assert.equal(activateSkill(game,player,2),true);
   const aerial = player.ability.aerialDribble;
   tickAbilities(game,player,.65);
-  assert.ok(Math.abs(aerial.left-(.65-.65*.85))<1e-9);
+  assert.ok(Math.abs(aerial.left-(.65-.65*MOTION_PACE))<1e-9);
   assert.equal(game.state.ball.owner,null);
   tickAbilities(game,player,.12);
   assert.equal(game.state.ball.owner,player.id);
@@ -629,7 +629,7 @@ test('Falcon aerial-dribble and return travel deadlines match paced motion rathe
   assert.equal(activateSkill(game,player,2),true);
   const returning = player.ability.skyReturn;
   tickAbilities(game,player,.5);
-  assert.ok(Math.abs(returning.left-2.575)<1e-9);
+  assert.ok(Math.abs(returning.left-(3-.5*MOTION_PACE))<1e-9);
   assert.ok(Math.abs(player.ability.auraLeft-2.5)<1e-9);
 });
 
@@ -639,8 +639,8 @@ test('MANMARK smooth tracking slows by fifteen percent and retains its five-seco
   assert.equal(activateSkill(game,player,1),true);
   const start = {x:player.x,y:player.y}, target = {x:enemy.x-45,y:enemy.y};
   tickAbilities(game,player,.02);
-  assert.ok(Math.abs(player.x-(start.x+(target.x-start.x)*.02*.85*18))<1e-9);
-  assert.ok(Math.abs(player.y-(start.y+(target.y-start.y)*.02*.85*18))<1e-9);
+  assert.ok(Math.abs(player.x-(start.x+(target.x-start.x)*.02*MOTION_PACE*18))<1e-9);
+  assert.ok(Math.abs(player.y-(start.y+(target.y-start.y)*.02*MOTION_PACE*18))<1e-9);
   assert.ok(Math.abs(player.ability.markLeft-4.98)<1e-9);
 });
 
@@ -649,7 +649,7 @@ test('Magnus physical-flight fallback does not teleport the ball early at its ol
   player.ability.magnusFlight={left:.2,goalBoxX:984};
   Object.assign(game.state.ball,{x:600,y:350,owner:null,magnusFlight:true,scriptedReturn:true});
   tickAbilities(game,player,.2);
-  assert.ok(Math.abs(player.ability.magnusFlight.left-.03)<1e-9);
+  assert.ok(Math.abs(player.ability.magnusFlight.left-(.2-.2*MOTION_PACE))<1e-9);
   assert.equal(game.state.phase,'play'); assert.equal(game.state.ball.x,600);
   tickAbilities(game,player,.04);
   assert.equal(player.ability.magnusFlight,null);

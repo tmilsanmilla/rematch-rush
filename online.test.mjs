@@ -535,7 +535,7 @@ test('codes accept exactly four alphanumeric characters and invalid codes preser
   const { host, code, add } = await roomHarness(t, 'standard-1v1');
   const guest = add(); await guest.join(code, 'Guest', 'none'); await flush();
   const peer = guest.peer;
-  for (const invalid of ['', 'ABC', 'ABCDE', 'AB!2', 'ABCD-EFGH']) await assert.rejects(guest.join(invalid, 'Guest', 'none'), /4-letter or number/);
+  for (const invalid of ['', 'ABC', 'ABCDE', 'AB!2', 'ABCD-EFGH']) await assert.rejects(guest.join(invalid, 'Guest', 'none'), /4 distinct/);
   assert.equal(guest.peer, peer); assert.equal(guest.connected, true); assert.equal(host.connected, true);
 });
 
@@ -718,10 +718,10 @@ test('custom room config rejects invalid teams and settings before replacing an 
     { slots: ['human', 'empty', 'bot', 'empty'] },
     { slots: ['human', 'friend', 'bot', 'bot'] },
     { slots: ['human', 'human'] },
-    { duration: 0 }, { duration: 60 }, { duration: 180 }, { scoreLimit: -1 }, { scoreLimit: 999 },
+    { duration: 0 }, { duration: 60 }, { duration: 181 }, { scoreLimit: -1 }, { scoreLimit: 999 },
   ]) await assert.rejects(host.create('Host', 'ice', 'custom', config));
   assert.equal(host.peer, peer); assert.equal(host._closed, false);
-  assert.deepEqual(normalizeRoomConfig({ duration: 120 }), { slots: ['human', 'human', 'bot', 'bot'], duration: 120, scoreLimit: 0 });
+  assert.deepEqual(normalizeRoomConfig({ duration: 120 }), { slots: ['human', 'human', 'bot', 'bot','empty','empty'], duration: 120, scoreLimit: 0 });
 });
 
 test('custom welcomes cannot change settings, bots, team assignments or empty slots after initial acceptance', async t => {

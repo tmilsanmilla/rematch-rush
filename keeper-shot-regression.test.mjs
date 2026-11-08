@@ -39,8 +39,8 @@ for(const team of [0,1]){
   for(const ultra of [false,true]){
    const {game,player}=match(team);giveBall(game,player);player.ultraCharge=ultra?3:0;
    const x=player.x;game.setInput(player.id,{shootHeld:true,ultraShot:ultra,keys:{[team?'a':'d']:true}});
-   game.update(.005);advance(game,.5);assert.ok(Math.abs(player.charge-55)<1e-8);assert.equal(player.shotsTaken,0);assert.ok(Math.abs(player.x-x)>50);
-   advance(game,.455);assert.equal(player.charge,100);assert.equal(player.shotsTaken,0);
+   game.update(.005);advance(game,.5);assert.ok(Math.abs(player.charge-11.06)<1e-8);assert.equal(player.shotsTaken,0);assert.ok(Math.abs(player.x-x)>50);
+   game.setInput(player.id,{shootHeld:true,ultraShot:ultra,keys:{}});advance(game,7.42);assert.equal(player.charge,100);assert.equal(player.shotsTaken,0);
    advance(game,.26);assert.equal(player.shotsTaken,1);assert.equal(player.shotPower,100);assert.equal(player.charging,false);
   }
  });
@@ -86,7 +86,7 @@ test('the replay includes the three-second lead-in and final shot at real speed'
  game.state.keepers[1].y=800;const release=game.state.elapsed;
  random(0,()=>game.kick(player,80,{angle:Math.atan2(-70,250)}));
  for(let i=0;i<400&&game.state.phase==='play';i++)game.update(.005);
- assert.equal(game.state.score[0],1);assert.ok(release>earlierPass);assert.ok(Math.abs(game.goalReplay[0].at-(release-3))<.1);assert.ok(game.goalReplay.some(frame=>frame.at===release));
- assert.ok(game.state.replayDuration<=6);assert.ok(game.state.replayDuration>=3);
+ assert.equal(game.state.score[0],1);assert.ok(release>earlierPass);assert.ok(game.goalReplay[0].at<.11);assert.ok(game.goalReplay.some(frame=>Math.abs(frame.at-release)<.11));
+ assert.ok(game.state.replayDuration<=12.5);assert.ok(game.state.replayDuration>=6);
  const guest=new Game(null,{mode:'guest'});guest.importState(game.exportState());assert.deepEqual(guest.goalReplay,game.goalReplay);assert.equal(guest.state.replayDuration,game.state.replayDuration);
 });

@@ -16,7 +16,7 @@ for(const team of [0,1]){
   const kicks=[],g=match({mode:'bot',gameFormat:'bot-standard',localTeam:1-team,character:'none',opponentCharacter:'none',botRandom:()=>.3,onEvent:e=>{if(e.type==='kick')kicks.push({...e,at:g.actionClock});}}),p=g.state.players.find(p=>p.team===team);
   Object.assign(p,{x:team?550:650,y:350});g.setOwner(p);
   advance(g,.149);assert.equal(kicks.length,0);assert.equal(p.charging,false);
-  advance(g,.6);assert.ok(kicks.length>=1);assert.ok(kicks[0].at>=.15);
+  advance(g,2);assert.ok(kicks.length>=1);assert.ok(kicks[0].at>=.15);
  });
  test(`weak half-field shots require physical saves rather than a finishing roll, team${team}`,()=>{
   for(const roll of [0,.999]){
@@ -81,10 +81,7 @@ test('bots vary their support lanes when either keeper holds the ball',()=>{
 });
 
 
-test('the three-second lead-in is retained from release even after a long flight replaces live history',()=>{
- const g=match(),p=receive(g);g.state.elapsed=20;
- const frame=g.captureFrame();g.history=[{...frame,at:16},{...frame,at:17},{...frame,at:18},{...frame,at:19}];
- g.kick(p,40);g.state.elapsed=35;g.history=[{...frame,at:34}];g.goal(0);
- assert.equal(g.goalReplay[0].at,17);assert.equal(g.goalReplay.find(f=>f.at===20).ball.owner,null);
- assert.equal(g.state.replayDuration,18);assert.equal(g.state.elapsed,35);
+test('last25 seconds are selected by the replay clock even when active match time differs',()=>{
+ const g=match(),p=receive(g);g.state.elapsed=20;g.replayClock=40;const frame=g.captureFrame();g.history=[{...frame,at:10},{...frame,at:16},{...frame,at:30},{...frame,at:39}];g.goal(0);
+ assert.equal(g.goalReplay[0].at,16);assert.equal(g.goalReplay.at(-1).at,40);assert.equal(g.state.replayDuration,12);assert.equal(g.state.elapsed,20);
 });

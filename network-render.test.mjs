@@ -89,12 +89,6 @@ test('slow display delivery also lowers pixels, while hidden-tab throttling neve
   assert.equal(game.renderQuality,.5);
 });
 
-test('replay lead-in adds preceding gameplay without slowing the shot',()=>{
-  for(const duration of [.2,1,5]){
-    const game=new Game(null,{mode:'online'});game.state.kickoff=null;game.state.elapsed=20;
-    const frame=game.captureFrame();game.shotStartedAt=20;game.shotReplay=[frame];game.history=[{...frame,at:0},{...frame,at:17},{...frame,at:18},{...frame,at:19}];
-    game.state.elapsed+=duration;game.goal(0);
-    near(game.state.replayDuration,duration+3);
-    assert.equal(game.goalReplay[0].at,17);assert.equal(game.goalReplay.at(-1).at,20+duration);
-  }
+test('replay uses the recorded25-second window at exactly2x',()=>{
+ for(const duration of [.2,1,5]){const game=new Game(null,{mode:'online'});game.state.kickoff=null;game.replayClock=20;const frame=game.captureFrame();game.history=[{...frame,at:0},{...frame,at:17},{...frame,at:18},{...frame,at:19}];game.replayClock+=duration;game.goal(0);near(game.state.replayDuration,(20+duration)/2);assert.equal(game.goalReplay[0].at,0);assert.equal(game.goalReplay.at(-1).at,20+duration);}
 });

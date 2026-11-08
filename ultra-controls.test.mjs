@@ -125,8 +125,8 @@ test('custom settings clamp to supported choices and a winning replay or skip en
  for(const skip of [false,true]){
   let ended=0;const value=game({settings:{duration:120,scoreLimit:3},onEnd:()=>ended++});value.state.score=[2,0];value.state.ball.lastTouch=0;value.goal(0);
   assert.equal(value.state.phase,'celebrate');assert.equal(ended,0);
-  if(skip)assert.equal(value.skipReplay(0),true);else advance(value,5+value.state.replayDuration+.1);
+  if(skip){assert.equal(value.skipReplay(0),true);value.skipReplay(1);}else advance(value,5+value.state.replayDuration+.1);
   assert.equal(value.state.phase,'ended');assert.equal(ended,1);advance(value,1);assert.equal(ended,1);
  }
- let ended=0;const timed=game({settings:{duration:120},onEnd:()=>ended++});timed.state.time=.005;timed.update(.01);assert.equal(timed.state.phase,'ended');assert.equal(ended,1);
+ let ended=0;const timed=game({settings:{duration:120},onEnd:()=>ended++});timed.state.score=[1,0];timed.state.time=.005;timed.update(.01);assert.equal(timed.state.phase,'ended');assert.equal(ended,1);
 });

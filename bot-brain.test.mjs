@@ -162,15 +162,11 @@ test('all fourteen bot styles run credential-free real engine updates without in
   }
 });
 
-test('integrated bot-2v2 constructor independently picks all three CPU styles and preserves an explicit opponent style', () => {
-  const expected = ['magician', 'emperor', 'ice'];
-  let calls = 0;
-  const game = new Game(null, { mode: 'bot', gameFormat: 'bot-2v2', character: 'ninja', botRandom: () => (BOT_CHARACTER_IDS.indexOf(expected[calls++]) + .5) / BOT_CHARACTER_IDS.length });
-  assert.equal(calls, 3);
-  assert.equal(game.state.players[0].character, 'ninja');
-  assert.deepEqual(game.state.players.filter(p => p.isBot).map(p => p.character), expected);
-  const explicit = new Game(null, { mode: 'bot', gameFormat: 'bot-2v2', opponentCharacter: 'falcon', botRandom: () => { throw new Error('Explicit characters do not require a random selection'); } });
-  assert.deepEqual(explicit.state.players.filter(p => p.isBot).map(p => p.character), ['falcon', 'falcon', 'falcon']);
+test('integrated bot-2v2 balances all CPUs to human rarity and preserves manual overrides',()=>{
+ const g=new Game(null,{mode:'bot',gameFormat:'bot-2v2',character:'ninja',botRandom:()=>.3});
+ assert.ok(g.state.players.filter(p=>p.isBot).every(p=>['ninja','powershooter'].includes(p.character)));
+ const explicit=new Game(null,{mode:'bot',gameFormat:'bot-2v2',opponentCharacter:'falcon',botRandom:()=>.3});
+ assert.deepEqual(explicit.state.players.filter(p=>p.isBot).map(p=>p.character),['falcon','falcon','falcon']);
 });
 
 test('integrated Game bot awakens then queues, validates and completes its real awakened cinematic kick', () => {

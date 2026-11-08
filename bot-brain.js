@@ -1,4 +1,4 @@
-import { ROSTER, getSkills } from './characters.js?v=8';
+import { ROSTER, getSkills } from './characters.js?v=9';
 
 const FIELD = { left: 70, right: 1130, top: 65, bottom: 635, goalTop: 260, goalBottom: 440 };
 const MID = { x: 600, y: 350 };
@@ -8,6 +8,19 @@ export const BOT_CHARACTER_IDS = Object.freeze(ROSTER.map(character => character
 
 export function selectBotCharacter(random = Math.random) {
   return BOT_CHARACTER_IDS[Math.floor(randomUnit(random) * BOT_CHARACTER_IDS.length)];
+}
+
+
+export function balanceBotCharacters(players,random=Math.random,manual={}) {
+  const humans=players.filter(p=>!p.isBot),bots=players.filter(p=>p.isBot);
+  if(!humans.length)return players;
+  const offset=Math.floor(randomUnit(random)*humans.length);
+  bots.forEach((bot,index)=>{
+    if(manual[bot.id]){bot.character=ROSTER.some(r=>r.id===manual[bot.id])?manual[bot.id]:'none';return;}
+    const source=humans[bots.length<humans.length?Math.floor(randomUnit(random)*humans.length):(index+offset)%humans.length];
+    const rarity=ROSTER.find(r=>r.id===source.character)?.rarity||'starter',pool=ROSTER.filter(r=>r.rarity===rarity);
+    bot.character=pool[Math.floor(randomUnit(random)*pool.length)]?.id||'none';
+  });return players;
 }
 
 function context(game, p) {

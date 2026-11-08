@@ -1,4 +1,6 @@
-import { selectBotCharacter } from './bot-brain.js?v=3';
+import { MATCH_RULES, ONLINE_FORMATS, ROOM_ALPHABET, validRoomCode, normalizeRoomConfig, humanSlots, playerSlots, rulesFor } from './match-rules.js?v=1';
+export { normalizeRoomConfig } from './match-rules.js?v=1';
+import { selectBotCharacter, balanceBotCharacters } from './bot-brain.js?v=4';
 
 /**
  * Host-authoritative one- and two-player teams over PeerJS 1.5.5 / WebRTC.
@@ -6,20 +8,11 @@ import { selectBotCharacter } from './bot-brain.js?v=3';
  * https://peerjs.com/client/api/peer and https://peerjs.com/server/cloud
  * Direct connections can fail on restrictive networks without a TURN relay.
  */
-const PROTOCOL = 'rematch-rush-v4';
+const PROTOCOL = 'rematch-rush-v5';
 const PREFIX = `${PROTOCOL}-`;
-const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+const ALPHABET = ROOM_ALPHABET;
 const CREATE_ATTEMPTS = 6;
-const FORMATS = new Set(['standard-1v1', 'standard-2v2', 'bot-team', 'custom']);
-const humanSlots = (format, config) => format === 'custom' ? config.slots.flatMap((kind, id) => kind === 'human' ? [id] : []) : format === 'standard-2v2' ? [0, 1, 2, 3] : format === 'bot-team' ? [0, 2] : [0, 1];
-const playerSlots = (format, config) => format === 'custom' ? config.slots.flatMap((kind, id) => kind !== 'empty' ? [id] : []) : format === 'standard-1v1' ? [0, 1] : [0, 1, 2, 3];
-export function normalizeRoomConfig(value = {}) {
-  const slots = value.slots === undefined ? ['human', 'human', 'bot', 'bot'] : value.slots;
-  if (!Array.isArray(slots) || slots.length !== 4 || slots[0] !== 'human' || slots.some(kind => !['human', 'bot', 'empty'].includes(kind)) || !slots.some((kind, id) => id % 2 === 1 && kind !== 'empty')) throw new Error('Choose one or two players per team. The host must stay in the blue team.');
-  const duration = value.duration ?? 300, scoreLimit = value.scoreLimit ?? 0;
-  if (![120, 300, 600].includes(duration) || ![0, 3, 5, 10].includes(scoreLimit)) throw new Error('Choose a supported match length and goal limit.');
-  return { slots: [...slots], duration, scoreLimit };
-}
+const FORMATS = new Set([...ONLINE_FORMATS,'bot-team','custom']);
 const randomToken = () => Array.from(globalThis.crypto?.getRandomValues ? globalThis.crypto.getRandomValues(new Uint8Array(24)) : Array.from({ length: 24 }, () => Math.floor(Math.random() * 256)), n => n.toString(16).padStart(2, '0')).join('');
 const OPEN_TIMEOUT = 15000;
 const CONNECT_TIMEOUT = 22000;
@@ -54,9 +47,10 @@ function loadPeerLibrary() {
   return peerLibraryPromise;
 }
 
-function profile(username, character) {
+function profile(username, character, dlsi) {
   return {
     username: String(username || 'Player').trim().slice(0, 24) || 'Player',
+    dlsi:{moves:Array.from({length:4},(_,i)=>dlsi?.moves?.[i]===true),awakening:dlsi?.awakening===true},
     character: String(character || 'none').replace(/[^a-z0-9_-]/gi, '').slice(0, 40) || 'none',
   };
 }
@@ -65,12 +59,12 @@ function randomCode() {
   const bytes = new Uint8Array(4);
   if (globalThis.crypto?.getRandomValues) globalThis.crypto.getRandomValues(bytes);
   else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
-  return Array.from(bytes, value => ALPHABET[value % ALPHABET.length]).join('');
+  const pool=[...ALPHABET];return Array.from(bytes,value=>pool.splice(value%pool.length,1)[0]).join('');
 }
 
 function parseCode(value) {
   const raw = String(value || '').trim().replace(new RegExp(`^${PREFIX}`, 'i'), '').replace(/[\s-]/g, '').toUpperCase();
-  if (!/^[A-Z0-9]{4}$/.test(raw)) throw new Error('Enter a 4-letter or number room code, like AB12.');
+  if (!validRoomCode(raw)) throw new Error('Enter 4 distinct letters/numbers. I, O and 0 are not used.');
   return raw;
 }
 
@@ -91,6 +85,7 @@ function normalizeInput(input) {
     pass: !!input.pass,
     skill: Number.isInteger(input.skill) && input.skill >= 0 && input.skill <= 9 ? input.skill : null,
     awaken: !!input.awaken,
+    qte:typeof input.qte==='string'&&/^[a-z]$/.test(input.qte)?input.qte:null,
     skipReplay: !!input.skipReplay,
   };
   if (input.aim && Number.isFinite(input.aim.x) && Number.isFinite(input.aim.y)) {
@@ -205,7 +200,7 @@ class MatchmakingQueue {
         if (data.type === 'waiting' && Number.isInteger(data.count) && data.count >= 1 && data.count <= this.required) this.onProgress(data.count);
         else if (data.type === 'retry' && !this.assigned) this._retry();
         else if (data.type === 'abort') this._abort(new Error('A matched player left before the game connected. Join the queue again.'));
-        else if (data.type === 'assignment' && !this.assigned && /^[A-Z0-9]{4}$/.test(data.roomCode || '') && /^[a-f0-9]{48}$/.test(data.admissionToken || '')) {
+        else if (data.type === 'assignment' && !this.assigned && validRoomCode(data.roomCode || '') && /^[a-f0-9]{48}$/.test(data.admissionToken || '')) {
           this.assigned = true;
           this._send(connection, { type: 'ack', roomCode: data.roomCode, admissionToken: data.admissionToken });
           this._resolve({ roomCode: data.roomCode, admissionToken: data.admissionToken });
@@ -366,13 +361,13 @@ export class OnlineSession {
   }
 
   async queue(username, character, gameFormat = 'standard-1v1') {
-    if (!['standard-1v1', 'standard-2v2'].includes(gameFormat)) throw new Error('Choose the 1v1 or 2v2 online queue.');
+    if (!ONLINE_FORMATS.includes(gameFormat)) throw new Error('Choose an online matchmaking mode.');
     const roomCode = await this._createRoom(username, character, gameFormat, {}, 'queue');
     const generation = this._generation, token = this._queueToken = {};
     this.entryMode = 'queue';
     this._queueAdmissionToken = randomToken();
     const matchmaker = this._matchmaker = new MatchmakingQueue({
-      onProgress: count => { if (!this._closed && this._queueToken === token) this._status('queue', `Searching for ${gameFormat === 'standard-1v1' ? '1v1' : '2v2'} players… ${count}/${humanSlots(gameFormat).length} ready.`); },
+      onProgress: count => { if (!this._closed && this._queueToken === token) this._status('queue', `Searching for ${`${rulesFor(gameFormat).size}v${rulesFor(gameFormat).size}`} players… ${count}/${humanSlots(gameFormat).length} ready.`); },
       onAbort: error => { if (!this._closed && this._queueToken === token && !this.connected) this._fail(error); },
     });
     try {
@@ -461,16 +456,17 @@ export class OnlineSession {
     this._closed = false;
     this.role = role;
     this.gameFormat = gameFormat;
+    this._balancedRoster = false;
     this.roomConfig = config;
-    this.settings = { duration: config?.duration ?? 300, scoreLimit: config?.scoreLimit ?? 0 };
+    this.settings = { duration: rulesFor(gameFormat,config||{}).duration, scoreLimit: config?.scoreLimit ?? 0, ...(config?.variant?{variant:config.variant}:{}) };
     if (!keepQueue) this.entryMode = 'room';
     this.localPlayerId = role === 'host' ? 0 : null;
     this.localTeam = role === 'host' ? 0 : 1;
-    this.localProfile = profile(username, character);
+    this.matchSeed=randomToken().slice(0,32);this.localProfile = profile(username, character,this.selectedVariants);
     this.remoteProfile = null;
     this.roomCode = null;
     this.roundId = 1;
-    this.players = role === 'host' ? [{ id: 0, team: 0, name: this.localProfile.username, character: this.localProfile.character, isBot: false }] : [];
+    this.players = role === 'host' ? [{ id: 0, team: 0, name: this.localProfile.username, character: this.localProfile.character,dlsi:this.localProfile.dlsi, isBot: false }] : [];
     if (role === 'host' && gameFormat === 'bot-team') this.players.push(
       { id: 1, team: 1, name: 'CPU 1', character: selectBotCharacter(), isBot: true },
       { id: 3, team: 1, name: 'CPU 2', character: selectBotCharacter(), isBot: true },
@@ -604,10 +600,10 @@ export class OnlineSession {
       if (playerId === undefined) { this._rejectConnection(connection, 'This room is full.'); return; }
       record.playerId = playerId;
       record.stateAcks = data.stateAcks === true;
-      record.profile = profile(data.profile.username, data.profile.character);
+      record.profile = profile(data.profile.username, data.profile.character,data.profile.dlsi);
       clearTimeout(record.timer);
       this.peers.set(playerId, connection);
-      this.players.push({ id: playerId, team: playerId % 2, name: record.profile.username, character: record.profile.character, isBot: false });
+      this.players.push({ id: playerId, team: playerId % 2, name: record.profile.username, character: record.profile.character,dlsi:record.profile.dlsi, isBot: false });
       this.players.sort((a, b) => a.id - b.id);
       this.remoteProfile ||= record.profile;
       this._publishLobby();
@@ -678,7 +674,7 @@ export class OnlineSession {
 
   _lobbyPayload() {
     return {
-      gameFormat: this.gameFormat, players: this.players.map(player => ({ ...player })),
+      gameFormat: this.gameFormat, seed:this.matchSeed,players: this.players.map(player => ({ ...player })),
       connectedHumans: this.players.filter(player => !player.isBot).length,
       requiredHumans: humanSlots(this.gameFormat, this.roomConfig).length, localPlayerId: this.localPlayerId,
       localTeam: this.localTeam, roomCode: this.roomCode, settings: { ...this.settings },
@@ -688,8 +684,9 @@ export class OnlineSession {
 
   _publishLobby() {
     if (this.role !== 'host' || this._closed) return;
-    const lobby = this._lobbyPayload();
+    let lobby = this._lobbyPayload();
     const ready = lobby.connectedHumans === lobby.requiredHumans;
+    if(ready&&!this._balancedRoster){balanceBotCharacters(this.players,Math.random,this.roomConfig?.botCharacters);if(rulesFor(this.gameFormat,this.settings).variant==='raw')for(const p of this.players)p.character='none';this._balancedRoster=true;lobby=this._lobbyPayload();}
     if (ready) this._matchmaker?.finish();
     this._startingLobby = ready;
     for (const record of this._connections.values()) {
@@ -708,16 +705,17 @@ export class OnlineSession {
     let roomConfig = null;
     try { if (data.gameFormat === 'custom') roomConfig = normalizeRoomConfig(data.roomConfig); } catch (_) { return false; }
     const slots = humanSlots(data.gameFormat, roomConfig), expectedIds = playerSlots(data.gameFormat, roomConfig);
-    const settings = { duration: roomConfig?.duration ?? 300, scoreLimit: roomConfig?.scoreLimit ?? 0 };
-    if (data.settings?.duration !== settings.duration || data.settings?.scoreLimit !== settings.scoreLimit) return false;
+    const settings = { duration: rulesFor(data.gameFormat,roomConfig||{}).duration, scoreLimit: roomConfig?.scoreLimit ?? 0, ...(roomConfig?.variant?{variant:roomConfig.variant}:{}) };
+    if (data.settings?.duration !== settings.duration || data.settings?.scoreLimit !== settings.scoreLimit || data.settings?.variant !== settings.variant) return false;
+    if(!/^[a-f0-9]{32}$/.test(data.seed||''))return false;this.matchSeed=data.seed;
     if (!slots.includes(data.localPlayerId) || data.localPlayerId === 0 || data.players.length > expectedIds.length) return false;
     const ids = new Set();
     const players = [];
     for (const raw of data.players) {
       if (!raw || !expectedIds.includes(raw.id) || ids.has(raw.id) || raw.team !== raw.id % 2 || !!raw.isBot !== !slots.includes(raw.id)) return false;
       ids.add(raw.id);
-      const clean = profile(raw.name, raw.character);
-      players.push({ id: raw.id, team: raw.team, name: clean.username, character: clean.character, isBot: !!raw.isBot });
+      const clean = profile(raw.name, raw.character,raw.dlsi);
+      players.push({ id: raw.id, team: raw.team, name: clean.username, character: clean.character,dlsi:raw.isBot?null:clean.dlsi, isBot: !!raw.isBot });
     }
     if (!ids.has(0) || !ids.has(data.localPlayerId) || (data.ready === true && !expectedIds.every(id => ids.has(id)))) return false;
     // The assigned identity and room format cannot change in a later welcome.
@@ -799,7 +797,7 @@ export class OnlineSession {
   _status(type, message) {
     if (this.entryMode === 'queue' && ['connecting', 'waiting'].includes(type)) {
       type = 'queue';
-      message = `Searching for ${this.gameFormat === 'standard-1v1' ? '1v1' : '2v2'} players…`;
+      message = `Searching for ${`${rulesFor(this.gameFormat).size}v${rulesFor(this.gameFormat).size}`} players…`;
     }
     this.onStatus({ type, message, roomCode: this.entryMode === 'queue' ? null : this.roomCode });
   }

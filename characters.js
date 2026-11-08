@@ -1,3 +1,4 @@
+import {dlsiSkills,activateDlsi,awakenDlsi,tickDlsi} from './dlsi.js?v=1';
 const S = (name, cooldown, description, extra = {}) => ({ name, cooldown, description, ...extra });
 const YELLOW = '#ffe45e';
 const ORANGE = '#ff923d';
@@ -59,7 +60,7 @@ export const ROSTER = [
     skills: [
       S('Observational status', 40, 'Move 30% faster and recover from ragdolls 50% faster for 10s.'),
       S('Empty-space dribble', 25, 'On-ball: dash vertically, then cut forward with invincibility.'),
-      S('COUNTER!', 30, 'Off-ball: a teammate passes to you from within half the pitch, then gains double speed for 5s. On-ball: Beautiful pass sends an airborne curved pass to your nearest teammate.'),
+      S('COUNTER!', 35, 'Off-ball: a teammate passes to you from within half the pitch, then gains double speed for 5s. On-ball: Beautiful pass sends an airborne curved pass to your nearest teammate.'),
     ],
     awakening: { name: 'My vision', duration: 50, requires: 'off-ball', description: 'Off-ball only. Upgrade every skill with METAVISION, Injury-inducing swerve, and two precision team plays.', quotes: ['My vision… my passes… WILL BE THE REASON WE WIN!'] },
   },
@@ -110,7 +111,7 @@ export const ROSTER = [
     tip: 'One touch is all it takes.', description: 'Trap airborne shots, bait tackles with fake volleys, and unleash an ultimate revolving finish.',
     passive: { name: 'First touch', description: 'For 2.5s after receiving possession, gain +100% speed and +20 shot power. Awakening doubles those bonuses.' },
     skills: [
-      S('Trap', 20, 'Off-ball: leap for up to 3s and trap any nearby shot, including airborne balls. On-ball: Trap: Volley fires a 65-power aerial shot with a 25s shared cooldown.'),
+      S('Trap', 25, 'Off-ball: leap for up to 3s and trap any nearby shot, including airborne balls. On-ball: Trap: Volley fires a 65-power aerial shot with a 25s shared cooldown.'),
       S('Zero-Reset Turn', 15, 'On-ball: turn a fifth of the field backward, stunning nearby opponents for 2s with invincibility. Unlocks Direct Heel Drive.'),
       S('Fake Volley', 15, 'On-ball: stand with invincibility for 2s. A tackle is countered with a 2s stun and resets this cooldown. Three consecutive counters unlock Juggling Destroyer Shot.'),
     ],
@@ -120,7 +121,7 @@ export const ROSTER = [
     id: 'serpent', name: 'Serpent', rarity: 'epic', color: GREEN,
     tip: 'Turn the defensive situation into your attack.', description: 'Green-aura headers, an unstoppable charge, and intelligent team interceptions.',
     skills: [
-      S('Serpentine Header', 20, 'Off-ball: jump to clear a nearby ball with 30 power, or 50 if it had airtime.'),
+      S('Serpentine Header', 15, 'Off-ball: jump to clear a nearby ball with 30 power, or 50 if it had airtime.'),
       S('Charge Press', 25, 'An opposing carrier must be ahead: wind up for 2s, then steal through their dribble and stun them for 0.75s. A missed charge stuns you for 1s.'),
       S('Take The Bait', 25, 'Team modes only: mark the farthest opponent. Intercept a ball headed toward them and kick it to your teammate.'),
     ],
@@ -178,7 +179,7 @@ export function getSkills(character, awakened = false, hasBall = false) {
     ];
   }
   if (id === 'trapper') {
-    skills[0] = hasBall ? S('Trap: Volley', 25, 'On-ball: leap into a 65-power aerial volley.') : S('Trap', 20, 'Off-ball: leap for 3s and trap any nearby shot, including airborne balls. Cooldown begins when the leap ends.');
+    skills[0] = hasBall ? S('Trap: Volley', 25, 'On-ball: leap into a 65-power aerial volley.') : S('Trap', 25, 'Off-ball: leap for 3s and trap any nearby shot, including airborne balls. Cooldown begins when the leap ends.');
     if (state.heelFollowup > 0) skills[1] = S('Direct Heel Drive', 20, 'Follow-up, on-ball: two invincible quarter-field blue dashes, stunning opponents in your path for 1s.', { followup: true });
     if (state.fakeVolleyStreak >= 3) skills[2] = S('Juggling Destroyer Shot', 20, 'Three successful fake volleys unlock this invincible 100-power instant goal.');
     if (awakened) skills = [
@@ -193,7 +194,7 @@ export function getSkills(character, awakened = false, hasBall = false) {
     skills.push(S('Trivela screamer', 0, 'On-ball: a 3s cutscene windup into a curved 80-power shot with 35% less accuracy.', { once: true, used: !!state.trivelaUsed }));
   }
   if (id === 'playmaker') {
-    skills[2] = hasBall ? S('Beautiful pass', 45, 'An airborne, perfectly curved full-field pass to your nearest teammate. Requires a teammate.') : S('COUNTER!', 30, 'A teammate within half the field passes to you and gains double speed for 5s. Requires a teammate.');
+    skills[2] = hasBall ? S('Beautiful pass', 45, 'An airborne, perfectly curved full-field pass to your nearest teammate. Requires a teammate.') : S('COUNTER!', 35, 'A teammate within half the field passes to you and gains double speed for 5s. Requires a teammate.');
     if (awakened) skills = [
       S('METAVISION', 40, 'Move 50% faster and become immune to ragdolls for 10s.'),
       S('Injury-inducing swerve', 30, 'On-ball with an opponent ahead: bait their run, suddenly stop, stun them for 2s, and accelerate away.'),
@@ -216,7 +217,7 @@ export function getSkills(character, awakened = false, hasBall = false) {
         S('TOO SLOW, TOO SLOW', 0, 'Off-ball: take possession, then pass to a teammate or dash a third of the pitch in 1v1.', { once: true, used: !!state.tooSlowUsed }),
         S('EVERYTHING IS JUST… TOO SLOW', 0, 'Immediately after an opponent kicks: freeze the ball, rush to it, and clear at 95 power.', { once: true, used: !!state.everythingUsed }),
       ];
-      if (state.onBallAwakening !== false) skills.push(S('WORLD RECORD SPEED', 0, 'Move at 300% of normal speed for 35s, with an intensified crimson aura.', { once: true, used: !!state.recordUsed }));
+      if (state.onBallAwakening !== false) skills.push(S('WORLD RECORD SPEED', 0, 'Move at 300% of normal speed for 15s, with an intensified crimson aura.', { once: true, used: !!state.recordUsed }));
     }
   }
   if (id === 'serpent' && awakened) {
@@ -245,7 +246,7 @@ export function getSkills(character, awakened = false, hasBall = false) {
     if (typeof character === 'object' && state.chemicalPartnerId == null) skills.splice(awakened ? 4 : 3, 1);
   }
   if (id === 'magician' && state.chemicalPartnerId != null) skills.push(S('Emperor’s lackey', 90, 'With an Emperor teammate: both press 4 while you have the ball to send an interceptable airborne pass. His awakened reaction uses 5.'));
-  return skillList(skills);
+  return dlsiSkills(typeof character==='object'?character:{character:id},awakened,hasBall,skillList(skills));
 }
 
 const ability = p => p.ability || (p.ability = {});
@@ -294,17 +295,8 @@ const towardGoal = (g, p, power, options = {}) => {
   kick(g, p, power, options);
   p.aim = previous;
 };
-const pass = (g, from, to, { air = false, curve = 0, power = 60 } = {}) => {
-  if (!g.hasBall(from)) return false;
-  const oldAim = from.aim;
-  from.aim = { x: to.x, y: to.y };
-  kick(g, from, power, { pass: true, air, curve, accuracy: 1, color: CYAN });
-  from.aim = oldAim;
-  // Normal ball physics still apply: ground passes can be intercepted.
-  g.state.ball.finish = null;
-  g.state.ball.passTarget = to.id;
-  return true;
-};
+const pass = (g, from, to, { air = false, curve = .6, power = 60 } = {}) => perfectPass(g,from,to,{curve,color:colorOf(from),interceptable:true});
+
 const later = (g, seconds, callback) => g.schedule(seconds, callback);
 const cinematic = (g, duration, lines, p, callback, choreography = null) => g.cutscene(duration, lines, colorOf(p), callback, choreography ? { ...choreography, actorId: p.id, aim: choreography.aim || { ...p.aim } } : null);
 const takeLoose = (g, p) => { if (g.state.ball.owner == null && !protectedBall(g)) { g.setOwner(p); return true; } return false; };
@@ -313,19 +305,20 @@ const trace = (g, p, target, count = 7) => {
 };
 const frozenBall = g => ({ x: g.state.ball.x, y: g.state.ball.y });
 const currentAwakening = p => p.awakened && p.awakeningLeft > 0;
-const protectedBall = g => !!(g.state.ball.perfectPass || g.state.ball.scriptedGoal || g.state.ball.magnusFlight || g.state.ball.unstoppableAir);
+const protectedBall = g => !!(g.state.ball.perfectPass&&!g.state.ball.perfectPass.interceptable || g.state.ball.scriptedGoal || g.state.ball.magnusFlight || g.state.ball.unstoppableAir);
 const recentOpponentShot = (g, p) => {
   const b = g.state.ball;
   return b.owner == null && b.lastKickTeam != null && b.lastKickTeam !== p.team && b.lastKickAgo < 1.6 && !protectedBall(g) && b.finish?.source !== 'distribution';
 };
-const perfectPass = (g, from, to, { instant = false, curve = .6, color = colorOf(from), onReceive = null, aim = null } = {}) => {
+const perfectPass = (g, from, to, { instant = false, curve = .6, color = colorOf(from), onReceive = null, aim = null,interceptable=false } = {}) => {
   if (!g.hasBall(from) || !to) return false;
+  if(from.stats)from.stats.passes=(from.stats.passes||0)+1;
   const origin = { x: from.x, y: from.y };
   trace(g, from, to, 8); aura(from, color, 1); aura(to, color, 1);
   if (instant) { if (g.setOwner(to) === false) return false; g.recordKickCharge?.(from); effect(g, 'touch', to, color); return true; }
   const duration = clamp(dist(g, from, to) / 1800, .25, .8), b = g.state.ball;
   Object.assign(b, { owner: null, x: origin.x, y: origin.y, vx: 0, vy: 0, vz: 0, z: 12, curve: 0, color, power: 55, lastTouch: from.id, lastKickTeam: from.team, lastKickAgo: 0, finish: null, pickupDelay: duration + .1, passTarget: to.id });
-  b.perfectPass = { fromId: from.id, targetId: to.id, origin, left: duration, duration, curve, color, onReceive, aim: aim ? { ...aim } : null };
+  b.perfectPass = { interceptable,fromId: from.id, targetId: to.id, origin, left: duration, duration, curve, color, onReceive, aim: aim ? { ...aim } : null };
   g.recordKickCharge?.(from);
   return true;
 };
@@ -338,12 +331,13 @@ const guaranteedFinish = (g, p, options = {}) => {
 };
 
 export function activateSkill(g, p, slot) {
-  if (!Number.isInteger(slot) || slot < 0 || slot > 4) return false;
+  if (!Number.isInteger(slot) || slot < 0 || slot > 5) return false;
   if (g.state.phase !== 'playing' && g.state.phase !== 'play') return false;
-  if ((p.stun || 0) > 0 || (p.recovery || 0) > 0) return notify(g, 'Recover before using a move.');
+  if ((p.stun || 0) > 0 || (p.recovery || 0) > 0 && !(slot===1&&p.ability?.dlLefty>0)) return notify(g, 'Recover before using a move.');
   const a = ability(p), id = idOf(p), awakened = currentAwakening(p);
   const skills = getSkills(p, awakened, g.hasBall(p));
   if (!skills[slot]) return false;
+  const dlsiResult=activateDlsi(g,p,slot,skills);if(dlsiResult!==null)return dlsiResult;
   const followup = (slot === 1 && ((!awakened && id === 'butterflydancer' && a.butterflyFollowup > 0) || (!awakened && id === 'emperor' && a.emperorFollowup > 0) || (id === 'streetdribbler' && a.rouletteFollowup > 0) || (id === 'supersonic' && !awakened && a.pinpointFollowup > 0) || (id === 'ninja' && a.precisionFollowup > 0) || (id === 'trapper' && !awakened && a.heelFollowup > 0))) || (id === 'magician' && !awakened && slot === 0 && a.placementFollowup > 0);
   if ((p.cooldowns[slot] || 0) > 0 && !followup) return notify(g, `${skills[slot].name} is cooling down.`);
 
@@ -508,7 +502,7 @@ export function activateSkill(g, p, slot) {
         if (g.hasBall(p)) { aura(p, CYAN, 1.5); pass(g, p, mate, { air: true, curve: .55, power: 65 }); cd(p, slot, 45); return true; }
         if (!ready(g, p, g.hasBall(mate), 'Your teammate must have the ball.')) return false;
         if (!ready(g, p, dist(g, p, mate) <= g.width / 2, 'Move within half a field of your teammate.')) return false;
-        aura(p, CYAN, 2); aura(mate, CYAN, 5); pass(g, mate, p, { power: 58 }); ability(mate).counterSpeedLeft = 5; cd(p, slot, 30); return true;
+        aura(p, CYAN, 2); aura(mate, CYAN, 5); perfectPass(g, mate, p, { color: CYAN }); ability(mate).counterSpeedLeft = 5; cd(p, slot, 35); return true;
       }
       if (!g.hasBall(p)) {
         if (!ready(g, p, g.hasBall(mate), 'Your teammate must have the ball.') || !spend(g, p, 'mineUsed')) return false;
@@ -544,7 +538,7 @@ export function activateSkill(g, p, slot) {
     }
     if (slot === 0 && awakened) {
       if (!spend(g, p, 'destructionUsed')) return false;
-      const origin = { x: p.x, y: p.y }, endX = clamp(p.x + direction(p) * g.width * .5, 70, g.width - 70);
+      const origin = { x: p.x, y: p.y }, goalX=p.team?70:g.width-70,aimDx=p.aim.x-p.x,aimEntry=p.y+(p.aim.y-p.y)*(goalX-p.x)/(aimDx||1),aligned=aimDx*direction(p)>0&&aimEntry>266&&aimEntry<434,endX = clamp(p.x + direction(p) * g.width * .5, 70, g.width - 70);
       cinematic(g, 2.4, ['Destruição total do campo'], p, () => {
         if (!currentAwakening(p)) return;
         trace(g, p, { x: endX, y: p.y }, 12);
@@ -554,10 +548,10 @@ export function activateSkill(g, p, slot) {
           if (onPath) { other.stun = Math.max(other.stun || 0, 2); effect(g, 'stun', other, PURPLE, 2); }
         }
         place(g, p, endX, p.y);
-        if (g.hasBall(p) && (p.team === 0 ? p.x > g.width * .8 : p.x < g.width * .2) && Math.abs(p.y - g.height / 2) < g.height * .26) {
-          g.notify('Nutmeg!'); towardGoal(g, p, 100, { finishBoost: .18, air: false, color: ORANGE });
+        if (g.hasBall(p) && (aligned || (p.team === 0 ? p.x > g.width * .8 : p.x < g.width * .2) && Math.abs(p.y - g.height / 2) < g.height * .26)) {
+          g.notify('Nutmeg!');if(aligned)guaranteedFinish(g,p,{color:ORANGE,air:false});else towardGoal(g,p,100,{air:false,color:ORANGE});
         }
-      }); return true;
+      },{kind:'dribble-route',destination:{x:endX,y:p.y}}); return true;
     }
     if (slot === 2 && awakened) {
       if (!spend(g, p, 'overtimeUsed')) return false;
@@ -750,7 +744,7 @@ function trapperAwakened(g, p, slot) {
       if (!currentAwakening(p) || g.state.ball.owner != null) return;
       const finish = finalView?.players?.find(other => other.id === p.id) || target;
       trace(g, p, finish, 12); place(g, p, finish.x, finish.y); g.setOwner(p);
-      p.leap = .9; kick(g, p, 100, { air: true, accuracy: 1, color: BLUE });
+      p.leap = .9; guaranteedFinish(g, p, { air: true, accuracy: 1, color: BLUE });
     }, { kind: 'hexchamber', targetId: shooter?.id }); return true;
   }
   return false;
@@ -792,7 +786,7 @@ function supersonicAwakened(g, p, slot) {
   }
   if (slot === 3 && a.onBallAwakening) {
     if (!spend(g, p, 'recordUsed')) return false;
-    cinematic(g, 2.4, ['I SEE IT NOW! THE WAY TO REACH NEW HEIGHTS! OUT OF MY WAY!'], p, () => { if (!currentAwakening(p)) return; a.recordSpeedLeft = 35; p.worldRecordSpeed = true; aura(p, '#ff174c', 35); }); return true;
+    cinematic(g, 2.4, ['I SEE IT NOW! THE WAY TO REACH NEW HEIGHTS! OUT OF MY WAY!'], p, () => { if (!currentAwakening(p)) return; a.recordSpeedLeft = 15; p.worldRecordSpeed = true; aura(p, '#ff174c', 15); }); return true;
   }
   return false;
 }
@@ -804,16 +798,17 @@ export function activateAwakening(g, p) {
   if (p.awakened) return notify(g, 'Your awakening is already active.');
   if ((p.awakeningCharge || 0) < 100) return notify(g, 'Awakening is still charging.');
   if ((p.stun || 0) > 0 || (p.recovery || 0) > 0) return notify(g, 'Recover before awakening.');
+  const dlAwake=awakenDlsi(g,p);if(dlAwake!==null)return dlAwake;
   const hasBall = g.hasBall(p), requirement = definition.awakening.requires;
-  if (requirement === 'on-ball' && !onBall(g, p)) return false;
-  if (requirement === 'off-ball' && !offBall(g, p)) return false;
+  if (!p.overtimeAwakening && requirement === 'on-ball' && !onBall(g, p)) return false;
+  if (!p.overtimeAwakening && requirement === 'off-ball' && !offBall(g, p)) return false;
   const a = ability(p);
   // The engine owns the global 100-second readiness race. Consuming the winning
   // awakening resets only its owner; new readiness can interrupt it later.
   for (const key of ['serpentStrikerUsed', 'butterflyGoalUsed', 'emperorBicycleUsed', 'emperorMoveUsed', 'magnusUsed', 'blindspotUsed', 'trivelaUsed', 'mineUsed', 'driveUsed', 'destructionUsed', 'overtimeUsed', 'catchUsed', 'tooSlowUsed', 'everythingUsed', 'recordUsed', 'knuckleUsed', 'bicycleUsed', 'bestStrikerUsed', 'hexchamberUsed']) a[key] = false;
   a.onBallAwakening = hasBall; a.rouletteFollowup = 0; a.pinpointFollowup = 0; a.placementFollowup = 0; a.heelFollowup = 0; a.precisionFollowup = 0; a.fakeVolleyStreak = 0; a.fakeVolleyLeft = 0; a.awakeningActive = true;
   p.counter = 0; p.onCounter = null;
-  p.awakeningCharge = 0; p.awakened = true; p.awakeningLeft = definition.awakening.duration;
+  p.awakeningCharge = 0; p.stats&&(p.stats.awakenings=(p.stats.awakenings||0)+1);p.awakened = true; p.awakeningLeft = definition.awakening.duration;
   p.cooldowns = [0, 0, 0, 0, 0];
   a.butterflyFollowup = 0; a.emperorFollowup = 0; a.infiniteDribble = 0;
   if (definition.id === 'emperor') {
@@ -863,7 +858,7 @@ export function tickAbilities(g, p, dt) {
   if (id === 'trapper' && hadFake && a.fakeVolleyLeft <= 0) {
     a.fakeVolleyStreak = 0; p.counter = 0; p.onCounter = null; cd(p, 2, 15);
   }
-  if (id === 'trapper' && hadTrap && a.trapLeft <= 0) { p.leap = 0; p.recovery = 0; cd(p, 0, 20); }
+  if (id === 'trapper' && hadTrap && a.trapLeft <= 0) { p.leap = 0; p.recovery = 0; cd(p, 0, 25); }
   if (a.loosePowerWindow > 0 && g.hasBall(p)) { p.shotPowerBonus = 20; a.shotPowerLeft = 5; a.loosePowerWindow = 0; g.notify('+20 SHOT POWER'); }
   if (a.shotPowerLeft > 0) { a.shotPowerLeft = Math.max(0, a.shotPowerLeft - dt); if (!a.shotPowerLeft) p.shotPowerBonus = 0; }
 
@@ -937,7 +932,7 @@ export function tickAbilities(g, p, dt) {
   }
   if (id === 'trapper') {
     if (a.trapLeft > 0 && g.state.ball.owner == null && !protectedBall(g) && dist(g, p, g.state.ball) < 100) {
-      g.setOwner(p); a.trapLeft = 0; p.leap = 0; p.recovery = 0; cd(p, 0, 20); effect(g, 'block', p, BLUE); g.notify('TRAPPED!');
+      g.setOwner(p); a.trapLeft = 0; p.leap = 0; p.recovery = 0; cd(p, 0, 25); effect(g, 'block', p, BLUE); g.notify('TRAPPED!');
     }
     if (a.heelLeft > 0) for (const enemy of opponents(g, p)) if (dist(g, p, enemy) < 95) { enemy.stun = Math.max(enemy.stun || 0, 1); effect(g, 'stun', enemy, BLUE, .4); }
   }
@@ -999,6 +994,7 @@ export function tickAbilities(g, p, dt) {
     } else if (drive.stage === 3 && !mate.motion && g.hasBall(p)) { pass(g, p, mate, { air: true, curve: .8, power: 60 }); a.drive = null; g.notify('Rabona!'); }
   }
   tickArrivalAbilities(g, p, dt);
+  tickDlsi(g,p,dt);
 }
 
 // Arrival moves use the same authoritative pass, dash and shot paths as ordinary
@@ -1072,7 +1068,7 @@ function serpentSkill(g, p, slot, awakened) {
   if (slot === 0 && !awakened) {
     if (!offBall(g, p) || !ready(g, p, canTouchLoose(g, p), 'Get near a loose ball for Serpentine Header.')) return false;
     const power = b.z > 1 || b.hadAirtime || b.lastAirtimeAt != null ? 50 : 30;
-    cd(p, slot, 20); trace(g, p, b); place(g, p, b.x, b.y); g.setOwner(p); p.leap = .6; aura(p, GREEN, 1); kick(g, p, power, { air: true, color: GREEN }); return true;
+    cd(p, slot, 15); trace(g, p, b); place(g, p, b.x, b.y); g.setOwner(p); p.leap = .6; aura(p, GREEN, 1); kick(g, p, power, { air: true, color: GREEN }); return true;
   }
   if (slot === 0 && awakened) {
     if (!ready(g, p, b.owner == null && !protectedBall(g), 'Ultimate Clearance requires a loose ball or an opposing shot.')) return false;
@@ -1128,7 +1124,7 @@ function butterflySkill(g, p, slot, awakened) {
     later(g, .46, () => { if (a.butterflyPath === path && g.hasBall(p)) dash(g, p, 0, g.height / 2 - p.y, Math.abs(g.height / 2 - p.y), .4, { color: YELLOW, dribble: true }); }); return true;
   }
   if (!awakened && slot === 1 && !g.hasBall(p)) {
-    if (!ready(g, p, b.owner == null && !protectedBall(g), 'El primer toque needs a loose or airborne ball.')) return false;
+    if (!ready(g, p, b.owner == null && !protectedBall(g) && dist(g,p,b)<=g.width/4, 'El primer toque needs a loose or airborne ball within a quarter field.')) return false;
     cd(p, slot, 25); wingAura(p, 1.1); trace(g, p, b, 12); place(g, p, b.x, b.y); g.setOwner(p); p.leap = .3;
     forwardDash(g, p, g.width / 3, .4, { color: YELLOW, dribble: true }); effect(g, 'touch', p, YELLOW); return true;
   }

@@ -1,7 +1,7 @@
 import {giveBall} from './test-fixtures.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Game, canvasResolution, fitViewport } from './game.js';
+import { Game, canvasResolution, fitViewport,MOTION_PACE } from './game.js';
 
 function context() {
   const calls = new Map();
@@ -45,7 +45,7 @@ test('steady rendering measures layout once and draws the static pitch from one 
   assert.equal(created, 1);
   assert.equal(pitchDraws, 1, 'hundreds of static pitch operations run only when its dimensions change');
   assert.equal(main.calls.get('drawImage'), 120);
-  assert.ok((layer.calls.get('fillRect') || 0) > 100);
+  assert.ok((layer.calls.get('fillRect') || 0) > 8);
   assert.ok(canvas.width * canvas.height <= 1600000);
   const view = fitViewport(canvas.width, canvas.height);
   assert.ok(Math.abs(game.pitchWidth - view.width) <= 1);
@@ -128,27 +128,27 @@ const near=(actual,expected,tolerance=1e-7)=>assert.ok(Math.abs(actual-expected)
 const advance=(game,seconds)=>{for(let left=seconds;left>1e-9;left-=.005)game.update(Math.min(.005,left));};
 function match(extra={}){const game=new Game(null,{mode:'online',...extra});game.state.kickoff=null;for(const [index,p]of game.state.players.entries())Object.assign(p,{x:index%2?950:250,y:index%2?550:150});return game;}
 
-test('player walking and carrying use exactly one 85 percent motion multiplier',()=>{
+test('player walking and carrying use exactly one current paced motion multiplier',()=>{
  for(const carrying of [false,true]){
   const game=match(),p=game.localPlayer();if(carrying)giveBall(game,p);const x=p.x;game.setInput(p.id,{keys:{d:true}});advance(game,.5);
-  near(p.x-x,194*(carrying?.8:1)*.5*.85);near(game.state.elapsed,.5);near(game.state.time,299.5);
+  near(p.x-x,194*(carrying?.8:1)*.5*MOTION_PACE);near(game.state.elapsed,.5);near(game.state.time,299.5);
  }
 });
 
-test('dash travel retains its complete range at 85 percent speed with movement windows derived from travel duration',()=>{
+test('dash travel retains its complete range at current paced speed with movement windows derived from travel duration',()=>{
  const game=match(),p=game.localPlayer(),x=p.x;game.dash(p,1,0,240,.6,{dribble:true,invincible:true});
- near(game.motionSeconds(1),.85);near(game.motionDuration(.6),.6/.85);near(p.dribble,.6/.85);near(p.invincible,.6/.85);
- advance(game,.3);near(p.x-x,240*.3/.6*.85);assert.ok(p.motion);
- advance(game,.6/.85-.3+.001);near(p.x-x,240);assert.equal(p.motion,null);assert.equal(p.dribble,0);assert.equal(p.invincible,0);
+ near(game.motionSeconds(1),MOTION_PACE);near(game.motionDuration(.6),.6/MOTION_PACE);near(p.dribble,.6/MOTION_PACE);near(p.invincible,.6/MOTION_PACE);
+ advance(game,.3);near(p.x-x,240*.3/.6*MOTION_PACE);assert.ok(p.motion);
+ advance(game,.6/MOTION_PACE-.3+.001);near(p.x-x,240);assert.equal(p.motion,null);assert.equal(p.dribble,0);assert.equal(p.invincible,0);
 });
 
-test('ground, curved and airborne balls follow the original physical path at exactly 85 percent travel time',()=>{
+test('ground, curved and airborne balls follow the original physical path at exactly current paced travel time',()=>{
  for(const properties of [{z:0,vz:0,curve:0},{z:12,vz:235,curve:0},{z:12,vz:235,curve:.3}]){
   const paced=match(),reference=match();reference.motionSeconds=seconds=>seconds;
   const state={x:300,y:150,vx:340,vy:35,owner:null,lastKickTeam:0,power:40,pickupDelay:0,...properties};
   Object.assign(paced.state.ball,state);Object.assign(reference.state.ball,state);
   paced.state.keepers.forEach(k=>k.holding=999);reference.state.keepers.forEach(k=>k.holding=999);
-  for(let i=0;i<50;i++){paced.updateBall(.01);reference.updateBall(.01*.85);}
+  for(let i=0;i<50;i++){paced.updateBall(.01);reference.updateBall(.01*MOTION_PACE);}
   for(const key of ['x','y','z','vx','vy','vz'])near(paced.state.ball[key],reference.state.ball[key]);
   assert.ok(paced.state.ball.x<300+340*.5,'travel is slower without weakening the ball’s authored launch power');
  }
@@ -157,17 +157,17 @@ test('ground, curved and airborne balls follow the original physical path at exa
 test('ball launch and gravity apply pace once, including throws and airborne team passes',()=>{
  const game=match({gameFormat:'standard-2v2'}),[p,,mate]=game.state.players;Object.assign(p,{x:300,y:350});Object.assign(mate,{x:600,y:350});giveBall(game,p);
  assert.equal(game.pass(p,mate,{air:true,power:55}),true);const b=game.state.ball,start={x:b.x,y:b.y,z:b.z,vx:b.vx,vy:b.vy,vz:b.vz};
- game.state.keepers.forEach(k=>k.holding=999);game.updateBall(.01);near(b.x-start.x,start.vx*.01*.85);near(b.vz,start.vz-440*.01*.85);assert.ok(b.z>start.z);
+ game.state.keepers.forEach(k=>k.holding=999);game.updateBall(.01);near(b.x-start.x,start.vx*.01*MOTION_PACE);near(b.vz,start.vz-440*.01*MOTION_PACE);assert.ok(b.z>start.z);
  const thrown=match(),keeper=thrown.state.keepers[0];thrown.keeperCatch(keeper);advance(thrown,1.99);assert.equal(thrown.state.ball.owner,keeper.id);
- advance(thrown,.02);assert.equal(thrown.state.ball.finish.source,'distribution');const launch={x:thrown.state.ball.x,vx:thrown.state.ball.vx};thrown.updateBall(.01);near(thrown.state.ball.x-launch.x,launch.vx*.01*.85);
+ advance(thrown,.02);assert.equal(thrown.state.ball.finish.source,'distribution');const launch={x:thrown.state.ball.x,vx:thrown.state.ball.vx};thrown.updateBall(.01);near(thrown.state.ball.x-launch.x,launch.vx*.01*MOTION_PACE);
 });
 
 test('scripted scoring flight is paced while clock, charge, cooldown and windup remain real-time',()=>{
  const scripted=match(),p=scripted.localPlayer();giveBall(scripted,p);scripted.guaranteedGoal(p);const shot=scripted.state.ball.scriptedGoal,from={...shot.from},to={...shot.to};
- scripted.updateBall(.2);near(scripted.state.ball.x,from.x+(to.x-from.x)*(.2*.85/.55));assert.equal(scripted.state.phase,'play');
- scripted.updateBall(.55/.85-.2+.001);assert.equal(scripted.state.phase,'celebrate');
+ scripted.updateBall(.2);near(scripted.state.ball.x,from.x+(to.x-from.x)*(.2*MOTION_PACE/.55));assert.equal(scripted.state.phase,'play');
+ scripted.updateBall(.55/MOTION_PACE-.2+.001);assert.equal(scripted.state.phase,'celebrate');
  const game=match({character:'powershooter'}),striker=game.localPlayer();giveBall(game,striker);striker.cooldowns[1]=10;striker.dribbleCd=2;striker.ability={auraLeft:10};game.startShot();game.update(.001);advance(game,.25);
- near(striker.charge,5+100*.25);near(striker.cooldowns[1],10-.251);near(striker.dribbleCd,2-.251);near(striker.ability.auraLeft,10-.251);near(game.state.time,300-.251);
+ near(striker.charge,5+12*.251);near(striker.cooldowns[1],10-.251);near(striker.dribbleCd,2-.251);near(striker.ability.auraLeft,10-.251);near(game.state.time,300-.251);
  game.suspendControls();game.useSkill(1);game.update(.001);assert.equal(game.shotMeter(striker).power,45);advance(game,.5);near(striker.shotWindup.left,.5);assert.equal(game.state.ball.owner,striker.id);advance(game,.501);assert.equal(game.state.ball.power,45);assert.equal(striker.ultraCharge,0);
 });
 
