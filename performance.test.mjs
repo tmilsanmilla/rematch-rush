@@ -167,7 +167,7 @@ test('scripted scoring flight is paced while clock, charge, cooldown and windup 
  scripted.updateBall(.2);near(scripted.state.ball.x,from.x+(to.x-from.x)*(.2*MOTION_PACE/.55));assert.equal(scripted.state.phase,'play');
  scripted.updateBall(.55/MOTION_PACE-.2+.001);assert.equal(scripted.state.phase,'celebrate');
  const game=match({character:'powershooter'}),striker=game.localPlayer();giveBall(game,striker);striker.cooldowns[1]=10;striker.dribbleCd=2;striker.ability={auraLeft:10};game.startShot();game.update(.001);advance(game,.25);
- near(striker.charge,5+12*.251);near(striker.cooldowns[1],10-.251);near(striker.dribbleCd,2-.251);near(striker.ability.auraLeft,10-.251);near(game.state.time,300-.251);
+ near(striker.charge,5+36*.251);near(striker.cooldowns[1],10-.251);near(striker.dribbleCd,2-.251);near(striker.ability.auraLeft,10-.251);near(game.state.time,300-.251);
  game.suspendControls();game.useSkill(1);game.update(.001);assert.equal(game.shotMeter(striker).power,45);advance(game,.5);near(striker.shotWindup.left,.5);assert.equal(game.state.ball.owner,striker.id);advance(game,.501);assert.equal(game.state.ball.power,45);assert.equal(striker.ultraCharge,0);
 });
 

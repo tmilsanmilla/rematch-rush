@@ -6,7 +6,7 @@ independently. The character guide previews locked variants too.
 
 ## Football
 
-Held shots start at 5 and gain exactly 12 power per second. World travel is 15%
+Held shots start at 5 and gain exactly 36 power per second. World travel is 15%
 faster than the preceding .85 pace; bot movement is .98 of a human's. The normal
 maximum launch equals the preceding 90-power launch. Backward aim has no strength
 penalty. New stuns are 10% shorter. Goalkeeper throws lead slightly farther, have

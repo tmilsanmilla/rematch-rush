@@ -269,9 +269,9 @@ test('a bot moves while charging with one stable aim and releases a midfield sho
     assert.deepEqual(game.botShot.aim,aim);assert.equal(game.botShot.power,power);
     assert.ok(Math.hypot(bot.x-position.x,bot.y-position.y)>10,'the charging bot keeps moving');
     assert.ok(Math.abs(bot.y-position.y)>7,'movement creates a sideways shooting angle');
-    near(bot.charge-charge,12*.1);assert.equal(bot.dribbleCd,0);assert.equal(bot.motion,null);
+    near(bot.charge-charge,36*.1);assert.equal(bot.dribbleCd,0);assert.equal(bot.motion,null);
     for(let i=0;i<100&&!kicks.length;i++)game.update(.02);
-    assert.equal(kicks.length,1);assert.ok(kicks[0].at<=2,'the bot releases its modest-power shot with the12/s charge ramp');
+    assert.equal(kicks.length,1);assert.ok(kicks[0].at<=2,'the bot releases its modest-power shot with the36/s charge ramp');
     assert.ok(power>=18&&power<=24);
     assert.ok(kicks[0].power>=power&&kicks[0].power<=power+2+1e-8,'one simulation step can add at most two charge points');
     assert.ok(Math.abs(kicks[0].x-(bot.team?70:1130))>430,'the bot shoots well outside keeper range');
@@ -322,7 +322,7 @@ test('movement normalizes diagonal speed and possession slows movement by 20 per
   near(carrying.state.players[0].x - start.x, 194 * .8*MOTION_PACE);
 });
 
-test('shots start at five and gain twelve power per active second', () => {
+test('shots start at five and gain thirty-six power per active second', () => {
   const game = match();
   const player = game.state.players[0];
   giveBall(game,player);
@@ -330,17 +330,17 @@ test('shots start at five and gain twelve power per active second', () => {
   game.update(.01);
   game.setInput(0, { shootHeld: false, shootRelease: true });
   withRandom(()=>0,()=>game.update(.01));
-  near(game.state.ball.power,5.12);
+  near(game.state.ball.power,5.36);
   assert.ok(game.state.ball.vy < 0);
   near(game.state.ball.vx, 0);
   giveBall(game,player);
   game.setInput(0, { shootHeld: true });
   game.update(.01);
   advance(game, .5);
-  near(player.charge,11.12);
+  near(player.charge,23.36);
   game.setInput(0, { shootHeld: false, shootRelease: true });
   game.update(.01);
-  near(game.state.ball.power,11.12);
+  near(game.state.ball.power,23.36);
 });
 
 test('a maximum charged kick automatically fires a quarter-second after reaching full power', () => {
@@ -348,7 +348,7 @@ test('a maximum charged kick automatically fires a quarter-second after reaching
   giveBall(game,game.state.players[0]);
   game.setInput(0, { shootHeld: true });
   game.update(.01);
-  advance(game, 8.17);
+  advance(game, 2.89);
   assert.equal(game.state.ball.owner, null);
   assert.equal(game.state.ball.power, 100);
   assert.ok(game.state.ball.z > 0);
@@ -613,7 +613,7 @@ test('both players expose actual charge and brief shot power, including online s
     const game=match(),p=game.state.players[team];giveBall(game,p);
     const x=p.x;game.setInput(team,{shootHeld:true,keys:{d:true}});game.update(.01);advance(game,.4);
     assert.ok(p.x>x,'players can move and charge together');
-    near(game.shotMeter(p).power,9.92);assert.equal(game.shotMeter(p).label,'POWER');
+    near(game.shotMeter(p).power,19.76);assert.equal(game.shotMeter(p).label,'POWER');
     game.setInput(team,{shootHeld:false,shootRelease:true,keys:{}});game.update(.01);
     assert.equal(game.shotMeter(p).label,'SHOT');near(game.shotMeter(p).power,game.state.ball.power);
     const guest=new Game(null,{mode:'guest',localTeam:1-team});guest.importState(game.exportState());

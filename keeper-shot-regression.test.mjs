@@ -39,8 +39,8 @@ for(const team of [0,1]){
   for(const ultra of [false,true]){
    const {game,player}=match(team);giveBall(game,player);player.ultraCharge=ultra?3:0;
    const x=player.x;game.setInput(player.id,{shootHeld:true,ultraShot:ultra,keys:{[team?'a':'d']:true}});
-   game.update(.005);advance(game,.5);assert.ok(Math.abs(player.charge-11.06)<1e-8);assert.equal(player.shotsTaken,0);assert.ok(Math.abs(player.x-x)>50);
-   game.setInput(player.id,{shootHeld:true,ultraShot:ultra,keys:{}});advance(game,7.42);assert.equal(player.charge,100);assert.equal(player.shotsTaken,0);
+   game.update(.005);advance(game,.5);assert.ok(Math.abs(player.charge-23.18)<1e-8);assert.equal(player.shotsTaken,0);assert.ok(Math.abs(player.x-x)>50);
+   game.setInput(player.id,{shootHeld:true,ultraShot:ultra,keys:{}});advance(game,2.135);assert.equal(player.charge,100);assert.equal(player.shotsTaken,0);
    advance(game,.26);assert.equal(player.shotsTaken,1);assert.equal(player.shotPower,100);assert.equal(player.charging,false);
   }
  });

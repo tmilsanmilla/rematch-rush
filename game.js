@@ -1,7 +1,8 @@
-import {ENGINE_VERSION,seededRandom,recordInput,recordStep} from './match-audit.js?v=1';
+import {ENGINE_VERSION,LEGACY_ENGINE_VERSION,seededRandom,recordInput,recordStep} from './match-audit.js?v=2';
 import {tickDlsi,dlsiAction,dlsiCounter,dlsiQte,drawDlsi,drawDlsiScene} from './dlsi.js?v=1';
-import { initPenalties, updatePenalties, resolvePenalty, drawTiebreakPitch } from './penalties.js?v=1';
-import { rulesFor } from './match-rules.js?v=1';
+import { initPenalties, updatePenalties, resolvePenalty, drawTiebreakPitch } from './penalties.js?v=2';
+import { rulesFor,SHOT_CHARGE } from './match-rules.js?v=2';
+export { SHOT_CHARGE } from './match-rules.js?v=2';
 import {ROSTER,getSkills,activateSkill,activateAwakening,tickAbilities} from './characters.js?v=9';
 import {selectBotCharacter,balanceBotCharacters,updateBotPlayer as updateBotBrain} from './bot-brain.js?v=4';
 
@@ -12,7 +13,6 @@ const MAX_CANVAS_PIXELS=1600000,MAX_CANVAS_SIDE=2560,MAX_EFFECTS=48;
 // Gameplay timers use real seconds; only world-space travel uses this pace.
 export const MOTION_PACE=.85*1.15;
 export const ACTION_COOLDOWNS=Object.freeze({dribble:1.7,tackle:2});
-export const SHOT_CHARGE=Object.freeze({perSecond:12,maxHold:.25});
 export const REPLAY_LEAD_IN=25;
 export const REPLAY_SPEED=2;
 export const POSSESSION_SHOT_DELAY=.15;
@@ -49,6 +49,7 @@ function player(id,team,character,name,isBot=false){const p={id,team,isBot,chara
 
 export class Game {
  constructor(canvas,options={}){
+  this.engineVersion=options.engineVersion===LEGACY_ENGINE_VERSION?LEGACY_ENGINE_VERSION:ENGINE_VERSION;this.shotChargePerSecond=this.engineVersion===LEGACY_ENGINE_VERSION?12:SHOT_CHARGE.perSecond;
   const seed=options.seed||options.settings?.seed;if(/^[a-f0-9]{32}$/.test(seed||'')){const random=seededRandom(seed);options={...options,random,botRandom:random,keeperRandom:random,seed};}this.canvas=canvas;this.ctx=canvas?.getContext('2d');this.options=options;this.width=WORLD.width;this.height=WORLD.height;this.localPlayerId=options.localPlayerId??options.localTeam??0;this.localTeam=options.localTeam??(this.localPlayerId%2);this.awakeningTurn=undefined;
   const rosterRandom=/^[a-f0-9]{32}$/.test(options.seed||'')?seededRandom(options.seed):options.botRandom||Math.random;
   const rule=rulesFor(options.gameFormat,options.settings||{}),ids=Array.from({length:rule.size*2},(_,id)=>id);this.rules=rule;
@@ -63,7 +64,7 @@ export class Game {
   if(rule.variant==='raw')for(const p of players)p.dlsi=null;this.localTeam=players.find(p=>p.id===this.localPlayerId)?.team??this.localTeam;
   this.state={players,gameFormat:options.gameFormat||'standard-1v1',ball:{x:MID.x,y:MID.y,vx:0,vy:0,z:0,vz:0,owner:null,power:0,lastTouch:null,lastKickTeam:null,lastKickAgo:99,curve:0,shotType:'normal',finish:null,distribution:null},keepers:[{id:'k0',team:0,x:98,y:350,holding:0,saveStreak:0,dive:0,diveCd:0},{id:'k1',team:1,x:1102,y:350,holding:0,saveStreak:0,dive:0,diveCd:0}],score:[0,0],time:rule.duration,scoreLimit:[3,5,10].includes(options.settings?.scoreLimit)?options.settings.scoreLimit:0,phase:'play',phaseTime:0,message:'',charge:0,kickoff:null,cutscene:null,elapsed:0,awakeningOwner:null,lastAwakeningRecipient:null,awakeningNotice:null,replayDuration:1};
   this.actionClock=0;this.replayClock=0;this.pendingShots=new Map();this.inputs=[];this.pending=[];for(const p of players){this.inputs[p.id]={keys:{},aim:{...p.aim},shootHeld:false};this.pending[p.id]=[];}this.effects=[];this.tasks=[];this.history=[];this.goalReplay=[];this.shotReplay=[];this.shotLeadIn=null;this.shotStartedAt=null;this.sample=0;this.running=false;this.last=0;this.frame=null;this.hud=0;this.noticeTime=0;this.botThink=0;this.botDecision={};this.botShot=null;this.botBrains={};this.localInput={keys:{},aim:{x:this.localTeam?FIELD.left:FIELD.right,y:MID.y},shootHeld:false};this.handlers=[];
-  this.resetKickoff(this.random()<.5?0:1,true);initPenalties(this);if(options.recordAudit)this.audit={version:1,engine:ENGINE_VERSION,seed:options.seed,steps:[],events:[],overflow:false};
+  this.resetKickoff(this.random()<.5?0:1,true);initPenalties(this);if(options.recordAudit)this.audit={version:1,engine:this.engineVersion,seed:options.seed,steps:[],events:[],overflow:false};
  }
  random(){return (this.options.random||Math.random)();}
  captureFrame(){const s=this.state,v=s.phase==='cutscene'?this.cutsceneView():s;return {at:this.replayClock,cinematic:s.phase==='cutscene'?{lines:s.cutscene?.lines||[],color:s.cutscene?.color,kind:s.cutscene?.choreography?.kind,progress:clamp(1-s.phaseTime/(s.cutscene?.duration||1),0,1)}:null,players:v.players.map(p=>({id:p.id,team:p.team,name:p.name,character:p.character,dlsi:p.dlsi,hidden:p.hidden,x:p.x,y:p.y,angle:p.angle,pose:p.pose,poseRotation:p.poseRotation,visualLift:p.visualLift,step:p.step,shotsTaken:p.shotsTaken,ultraCharge:p.ultraCharge,chargingUltra:p.chargingUltra,shotType:p.shotType,charge:p.charge,charging:p.charging,shotPowerBonus:p.shotPowerBonus,receiptPowerBonus:p.receiptPowerBonus,shotPower:p.shotPower,shotPowerLeft:p.shotPowerLeft,shotWindup:p.shotWindup?{...p.shotWindup}:null,dribble:p.dribble,invincible:p.invincible,aura:p.aura,awakened:p.awakened,stun:p.stun,stealth:p.stealth,leap:p.leap,butterflyWings:p.butterflyWings,ability:p.dlsi?{velocity:p.ability?.velocity,dlGinga:p.ability?.dlGinga?{key:p.ability.dlGinga.key}:null,dlRefined:p.ability?.dlRefined,dlHacked:p.ability?.dlHacked}:p.character==='butterflydancer'?{wingsLeft:p.ability?.wingsLeft||0}:undefined,motion:p.motion?{...p.motion}:null})),ball:{...v.ball},keepers:v.keepers.map(k=>({...k}))};}
@@ -246,7 +247,7 @@ export class Game {
    if(p.stun>0||p.recovery>0&&!(p.ability?.dlLefty>0&&this.pending[p.id].some(([a,k])=>a==='skill'&&k===2))||locked){if(!locked)p.stats.continuousMovement=false;if(this.pending[p.id].some(([kind])=>kind==='skill'||kind==='awaken'))this.notify(locked?'Opponent kickoff protection — wait for possession or the countdown.':p.stun>0?'You are stunned. Try again when you recover.':'Finish the current move, then use your next ability.');p.charging=false;p.charge=0;this.pending[p.id]=[];continue;}
    for(const [action,slot] of this.pending[p.id]){if(s.phase!=='play')break;if(action==='action')this.action(p);if(action==='pass')this.pass(p);if(action==='skill'){if(getSkills(p,p.awakened,this.hasBall(p)).length)this.activateMeteredSkill(p,slot-1);else this.notify('Characterless has no character abilities. Spin and equip a character in Characters.');}if(action==='awaken')activateAwakening(this,p);if(action==='shoot'&&this.hasBall(p))this.kick(p,Math.max(5,p.charge),{air:p.charge>=100,manual:true,ultraShot:slot===true});}this.pending[p.id]=[];
    if(s.phase!=='play')return;
-   if(input.shootHeld&&this.hasBall(p)&&(!input.ultraShot||this.ultraReady(p))){if(!p.charging){p.charging=true;p.chargingUltra=!!input.ultraShot;p.charge=5;p.maxHold=0;}p.charge=Math.min(100,p.charge+dt*SHOT_CHARGE.perSecond);if(p.charge>=100){p.maxHold+=dt;if(p.maxHold>=SHOT_CHARGE.maxHold)this.kick(p,100,{air:true,manual:true,ultraShot:!!input.ultraShot});}}else if(!this.hasBall(p)||input.ultraShot&&!this.ultraReady(p)){p.charging=false;p.chargingUltra=false;p.charge=0;}
+   if(input.shootHeld&&this.hasBall(p)&&(!input.ultraShot||this.ultraReady(p))){if(!p.charging){p.charging=true;p.chargingUltra=!!input.ultraShot;p.charge=5;p.maxHold=0;}p.charge=Math.min(100,p.charge+dt*this.shotChargePerSecond);if(p.charge>=100){p.maxHold+=dt;if(p.maxHold>=SHOT_CHARGE.maxHold)this.kick(p,100,{air:true,manual:true,ultraShot:!!input.ultraShot});}}else if(!this.hasBall(p)||input.ultraShot&&!this.ultraReady(p)){p.charging=false;p.chargingUltra=false;p.charge=0;}
    let dx=(input.keys?.d?1:0)-(input.keys?.a?1:0),dy=(input.keys?.s?1:0)-(input.keys?.w?1:0),distance=0;
    if(p.motion){const m=p.motion,motionDt=Math.min(this.motionSeconds(dt),Math.max(0,m.left));m.left-=motionDt;distance=m.speed*motionDt;dx=m.dx;dy=m.dy;p.x+=dx*distance;p.y+=dy*distance;if(m.feint){const progress=clamp(1-m.left/m.duration,0,1),sway=Math.sin(progress*TAU)*26,shift=sway-(m.sway||0);p.x-=m.dy*shift;p.y+=m.dx*shift;m.sway=sway;}if(m.steal){const enemy=this.opponent(p);if(this.hasBall(enemy)&&this.distance(p,enemy)<42){const ok=this.steal(p,enemy,m.stun||1);if(m.knockback){const target=ok?enemy:p;target.x+=dx*125;target.y+=dy*125;}}if(!(s.ball.passProtectedUntil>s.elapsed&&s.ball.lastKickTeam!==p.team)&&s.ball.owner===null&&!s.ball.magnusFlight&&!s.ball.perfectPass&&!s.ball.scriptedGoal&&s.ball.z===0&&this.distance(p,s.ball)<40)this.setOwner(p);}if(m.left<=0)p.motion=null;
    }else if(dx||dy){const n=Math.hypot(dx,dy);dx/=n;dy/=n;let speed=194*(p.isBot?.98:1)*(p.dlsiSpeed??1)*(1+(p.character==='supersonic'&&!p.dlsiSpeed?.5:0)+(p.abilitySpeedBoost||0)+(p.speedBoost||0)+(p.character==='butterflydancer'&&p.ability?.ankleBoostLeft>0?.2:0))*(this.hasBall(p)?.8:1);distance=speed*this.motionSeconds(dt);p.x+=dx*distance;p.y+=dy*distance;p.angle=Math.atan2(dy,dx);}

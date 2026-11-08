@@ -1,3 +1,4 @@
+import {SHOT_CHARGE} from './match-rules.js?v=2';
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const random=g=>g.options.botRandom||Math.random;
 export function initPenalties(g){
@@ -20,7 +21,7 @@ export function resolvePenalty(g,scored){
  s.score=[...p.scores];s.message=scored?'PENALTY SCORED':'PENALTY SAVED / MISSED';Object.assign(s.ball,{vx:0,vy:0,vz:0,z:0,owner:null,finish:null});return true;
 }
 function nextAttempt(g){const p=g.state.penalty;if(p.practice){if(p.attempts[p.turnTeam]>=p.max){g.state.practiceResult=true;g.endMatch();return;}}else{if(p.attempts[0]>=p.max&&p.attempts[1]>=p.max){if(p.scores[0]===p.scores[1]){startTiebreak(g);return;}g.state.winnerTeam=p.scores[0]>p.scores[1]?0:1;g.endMatch();return;}if(p.attempts[p.turnTeam]>=p.max)p.turnTeam=1-p.turnTeam;}prepareAttempt(g);}
-function charge(g,p,dt,held){if(held){if(!p.charging){p.charging=true;p.charge=5;p.maxHold=0;}p.charge=Math.min(100,p.charge+12*dt);if(p.charge>=100)p.maxHold=(p.maxHold||0)+dt;}return p.charge||5;}
+function charge(g,p,dt,held){if(held){if(!p.charging){p.charging=true;p.charge=5;p.maxHold=0;}p.charge=Math.min(100,p.charge+(g.shotChargePerSecond??SHOT_CHARGE.perSecond)*dt);if(p.charge>=100)p.maxHold=(p.maxHold||0)+dt;}return p.charge||5;}
 export function updatePenalties(g,dt){
  const s=g.state,p=s.penalty;if(!p||s.phase==='ended')return false;s.elapsed+=dt;
  if(p.phase==='tiebreak'){updateTiebreak(g,dt);return true;}

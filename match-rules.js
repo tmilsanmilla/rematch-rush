@@ -1,4 +1,5 @@
 // Shared by the lobby, transport and authoritative simulation.
+export const SHOT_CHARGE=Object.freeze({perSecond:36,maxHold:.25});
 const standard=(size,online=true)=>({size,humans:online?size*2:1,variant:'standard',duration:300});
 const raw=(size,online=true)=>({...standard(size,online),variant:'raw',duration:180});
 export const MATCH_RULES=Object.freeze({

@@ -1,5 +1,5 @@
-import { MATCH_RULES, ONLINE_FORMATS, ROOM_ALPHABET, validRoomCode, normalizeRoomConfig, humanSlots, playerSlots, rulesFor } from './match-rules.js?v=1';
-export { normalizeRoomConfig } from './match-rules.js?v=1';
+import { MATCH_RULES, ONLINE_FORMATS, ROOM_ALPHABET, validRoomCode, normalizeRoomConfig, humanSlots, playerSlots, rulesFor } from './match-rules.js?v=2';
+export { normalizeRoomConfig } from './match-rules.js?v=2';
 import { selectBotCharacter, balanceBotCharacters } from './bot-brain.js?v=4';
 
 /**
@@ -8,7 +8,7 @@ import { selectBotCharacter, balanceBotCharacters } from './bot-brain.js?v=4';
  * https://peerjs.com/client/api/peer and https://peerjs.com/server/cloud
  * Direct connections can fail on restrictive networks without a TURN relay.
  */
-const PROTOCOL = 'rematch-rush-v5';
+const PROTOCOL = 'rematch-rush-v6';
 const PREFIX = `${PROTOCOL}-`;
 const ALPHABET = ROOM_ALPHABET;
 const CREATE_ATTEMPTS = 6;
