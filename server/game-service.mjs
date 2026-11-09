@@ -1,5 +1,5 @@
 import {createHash,randomInt,randomUUID} from 'node:crypto';
-import {normaliseProgress,settleProgress,buySpin,buyFlowSpin,equipFlow,chooseFlow,toggleVariant,stageLeaderboard,parseAdminCommand,banUntil,banMinutes,STYLE_IDS} from '../progression.js';
+import {accountSettings,AVATAR_COLORS,AVATAR_FONTS,normaliseProgress,settleProgress,buySpin,buyFlowSpin,equipFlow,chooseFlow,toggleVariant,stageLeaderboard,parseAdminCommand,banUntil,banMinutes,STYLE_IDS} from '../progression.js';
 import {selectedVariants} from '../progression.js';
 import {FLOW_IDS} from '../flow.js';
 import {ENGINE_VERSION} from '../match-audit.js';
@@ -20,14 +20,18 @@ export function createGameService(store,{choose=chooseSpin}={}){
   const ban=await tx.ban(actor),banned=ban?.active&&banMinutes(ban.until,now)!==-1;
   const admin=await tx.isAdmin(actor);
   if(banned&&!['status','appeal'].includes(action))fail('This account is banned.',403);
-  let profile=normaliseProgress(await tx.profile(actor));
-  if(action==='status')return {authenticated:true,profile,admin,banned:banned?{reason:ban.reason,minutes:banMinutes(ban.until,now),until:ban.until}:null};
+  const stored=await tx.profile(actor);
+  let profile=normaliseProgress(stored);
+  if(!stored.settings&&typeof tx.displayName==='function')profile.settings.name=accountSettings({name:await tx.displayName(actor)}).name;
+  if(action==='status')return {authenticated:true,accountId:actor,profile,admin,banned:banned?{reason:ban.reason,minutes:banMinutes(ban.until,now),until:ban.until}:null};
   if(action==='leaderboard')return tx.leaderboard();
+  if(input.expectedAccountId!==undefined&&input.expectedAccountId!==actor)fail('Return to the original account before retrying this operation.',409);
   if(!uuid(input.operationId))fail('Use a new operation ID.');
   const hash=digest({action,input}),previous=await tx.operation(input.operationId);
   if(previous){if(previous.actor!==actor||previous.digest!==hash)fail('Operation conflict.',409);return previous.result;}
   let result;
-  if(action==='equip'){if(!profile.unlocked.includes(input.character))fail('Unlock this character first.');profile.equipped=input.character;await tx.saveProfile(actor,profile);result={profile};}
+  if(action==='preferences'){const v=input.settings;if(!v||typeof v!=='object'||Array.isArray(v)||Object.keys(v).some(k=>!['name','sound','reducedMotion','avatarColor','avatarFont'].includes(k))||typeof v.name!=='string'||!v.name.trim()||v.name.length>18||/[<>\x00-\x1f]/.test(v.name)||typeof v.sound!=='boolean'||typeof v.reducedMotion!=='boolean'||!AVATAR_COLORS.includes(v.avatarColor)||!AVATAR_FONTS.includes(v.avatarFont))fail('Choose valid account preferences.');profile.settings=accountSettings(v);await tx.saveProfile(actor,profile);result={profile};}
+  else if(action==='equip'){if(!profile.unlocked.includes(input.character))fail('Unlock this character first.');profile.equipped=input.character;await tx.saveProfile(actor,profile);result={profile};}
   else if(action==='variant'){if(typeof input.enabled!=='boolean')fail('Choose an enabled or disabled variant.');profile=toggleVariant(profile,input.character,input.slot,input.enabled);await tx.saveProfile(actor,profile);result={profile};}
   else if(action==='flow-spin'){const purchase=buyFlowSpin(profile,input.type,type=>chooseFlow(type,()=>randomInt(1000000000)/1000000000));await tx.saveProfile(actor,purchase.progress);result={profile:purchase.progress,id:purchase.id,duplicate:purchase.duplicate,cost:purchase.cost};}
   else if(action==='equip-flow'){profile=equipFlow(profile,input.flow);await tx.saveProfile(actor,profile);result={profile};}

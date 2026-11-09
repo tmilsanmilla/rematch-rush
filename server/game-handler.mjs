@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto';
 import {SESSION_COOKIE,SITE_ORIGIN} from './pixel-handler.mjs';
-const actions=new Set(['status','leaderboard','equip','flow-spin','equip-flow','variant','spin','start','finish','appeal','admin','appeals','dismiss']);
+const actions=new Set(['status','leaderboard','preferences','equip','flow-spin','equip-flow','variant','spin','start','finish','appeal','admin','appeals','dismiss']);
 const reply=(body,status=200,publicRead=false)=>Response.json(body,{status,headers:{...(publicRead?{'Access-Control-Allow-Origin':'*'}:{}),'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'"}});
 export function createGameHandler({getService}){return async request=>{
  const u=new URL(request.url),action=u.pathname.split('/').at(-1);if(!actions.has(action))return reply({error:'Unknown game operation.'},404);

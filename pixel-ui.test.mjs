@@ -17,7 +17,7 @@ const signedIn = { available: true, authenticated: true, profile: { displayName:
 function harness(responses, { creationControls = true, search = '' } = {}) {
   const nodes = new Map();
   const ids = ['pixel-account', 'pixel-account-sign-in', 'pixel-account-sign-out', 'pixel-account-name', 'pixel-account-status', 'profile-name'];
-  if (creationControls) ids.push('pixel-account-discover', 'pixel-account-create', 'pixel-account-create-confirmation', 'pixel-account-create-confirm', 'pixel-account-create-cancel');
+  if (creationControls) ids.push('pixel-account-discover', 'pixel-account-create', 'pixel-account-create-confirmation', 'pixel-account-create-confirm', 'pixel-account-create-cancel', 'pixel-account-return');
   for (const id of ids) {
     const listeners = new Map();
     nodes.set(id, {
@@ -245,7 +245,7 @@ test('the account markup hides separate-profile confirmation by default and has 
   assert.match(account, /current Pixel password only on Pixel Pulse/);
   assert.doesNotMatch(account, /<form|<input|data-action|id="profile-name"|type="password"/);
   assert.match(html, /id="profile-name">Player<\/span>/);
-  assert.match(html, /type="module" src="\.\/pixel-account\.js\?v=4"/);
+  assert.match(html, /type="module" src="\.\/pixel-account\.js\?v=5"/);
   const css = readFileSync(new URL('./style.css', import.meta.url), 'utf8');
   assert.match(css, /\.site-header\[hidden\]\+\.pixel-account\{display:none\}/);
 });
@@ -405,3 +405,9 @@ test('refused/uncertain returns are errors while discovery and normal result mes
  const app=harness([signedIn,{ok:true,authenticated:false}]);await app.ui.ready;assert.equal(await app.ui.endSession(),true);
  assert.equal(app.node('pixel-account-status').attributes.get('data-tone'),'status');assert.equal(app.node('pixel-account-status').attributes.get('role'),'status');app.ui.destroy();
 });
+
+test('first Continue during ongoing enrollment starts the existing discovery journey directly',async()=>{const app=harness([ongoingMetadata,{url:ongoingUrl(true)}]);await app.ui.ready;assert.equal(await app.ui.startSignIn(),true);assert.equal(app.requests.at(-1).url,'/api/auth/pixel-pulse/discover');assert.equal(app.redirects[0],ongoingUrl(true));app.ui.destroy();});
+test('an unbound discovered callback immediately opens the real separate-profile confirmation',async()=>{const app=harness([{...ongoingMetadata,discoveryReady:true,discoveryExpiresAt:new Date(NOW+30000).toISOString()}],{search:'?pixel=discovered'});await app.ui.ready;assert.equal(app.node('pixel-account-create-confirmation').hidden,false);assert.equal(app.requests.length,1);app.ui.destroy();});
+
+test('a ready unbound journey reopens its choice without repeating Continue or sending another authorization request',async()=>{const app=harness([{...ongoingMetadata,discoveryReady:true,discoveryExpiresAt:new Date(NOW+30000).toISOString()}]);await app.ui.ready;assert.equal(await app.ui.startSignIn(),false);assert.equal(app.node('pixel-account-create-confirmation').hidden,false);assert.equal(app.requests.length,1);app.ui.destroy();});
+test('the explicit existing-account choice uses ordinary immutable return and never auto-creates',async()=>{const url=authorizeUrl(),app=harness([{...ongoingMetadata,discoveryReady:true,discoveryExpiresAt:new Date(NOW+30000).toISOString()},{url}]);await app.ui.ready;assert.equal(await app.ui.startSignIn(true),true);assert.equal(app.requests.at(-1).url,'/api/auth/pixel-pulse/start');assert.equal(new URL(app.redirects[0]).searchParams.has('pixel_intent'),false);app.ui.destroy();});

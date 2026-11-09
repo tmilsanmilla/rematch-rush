@@ -6,13 +6,13 @@ import { ROSTER, getSkills } from './characters.js';
 import {FLOW_ROSTER,flowOf,remainingMoveSeconds} from './flow.js';
 import { normalizeRoomConfig } from './online.js';
 import {MATCH_RULES,ONLINE_FORMATS,rulesFor} from './match-rules.js';
-import {normaliseProgress,levelProgress,buyFlowSpin,equipFlow,chooseFlow,FLOW_SPIN_PRICES,settleProgress,buySpin,toggleVariant,selectedVariants,variantUnlocks,moveQuests,QUESTS,SPIN_PRICES} from './progression.js';
+import {accountSettings,AVATAR_COLORS,AVATAR_FONTS,normaliseProgress,levelProgress,buyFlowSpin,equipFlow,chooseFlow,FLOW_SPIN_PRICES,settleProgress,buySpin,toggleVariant,selectedVariants,variantUnlocks,moveQuests,QUESTS,SPIN_PRICES} from './progression.js';
 import {randomUUID} from 'node:crypto';
 import { ACTION_COOLDOWNS } from './game.js';
 
 function appHarness(savedProfile={money:500}) {
   const nodes = new Map(), listeners = new Map(), intervals = new Map(), windowListeners = new Map();
-  const sessions = [], games = [];
+  const sessions = [], games = [], storageWrites=[];let accountNotification;
   let timerId = 0;
   const node = selector => {
     if (!nodes.has(selector)) nodes.set(selector, {
@@ -32,7 +32,7 @@ function appHarness(savedProfile={money:500}) {
     body: { classList: { toggle() {} }, style: {} },
   };
   const context = {
-    document, FLOW_ROSTER,flowOf,remainingMoveSeconds,ROSTER, getSkills, ACTION_COOLDOWNS,MATCH_RULES,ONLINE_FORMATS,rulesFor,normaliseProgress,levelProgress,buyFlowSpin,equipFlow,chooseFlow,FLOW_SPIN_PRICES,settleProgress,buySpin,toggleVariant,selectedVariants,variantUnlocks,moveQuests,QUESTS,SPIN_PRICES,crypto:{randomUUID},createGameAccount:()=>({current:null,pending:null,refresh:async()=>null,leaderboard:async()=>{throw Error('offline');}}),
+    document, FLOW_ROSTER,flowOf,remainingMoveSeconds,ROSTER, getSkills, ACTION_COOLDOWNS,MATCH_RULES,ONLINE_FORMATS,rulesFor,accountSettings,AVATAR_COLORS,AVATAR_FONTS,normaliseProgress,levelProgress,buyFlowSpin,equipFlow,chooseFlow,FLOW_SPIN_PRICES,settleProgress,buySpin,toggleVariant,selectedVariants,variantUnlocks,moveQuests,QUESTS,SPIN_PRICES,crypto:{randomUUID},createGameAccount:options=>{accountNotification=options.onChange;return{current:null,pending:null,refresh:async()=>null,leaderboard:async()=>{throw Error('offline');}};},
     OnlineSession: class {
       constructor(options) { this.options = options; this.role = 'host'; this.closed = false; this.starts = 0; sessions.push(this); }
       queue(...args) { this.queued = args; return new Promise((resolve, reject) => { this.resolveQueue = resolve; this.rejectQueue = reject; }); }
@@ -55,7 +55,7 @@ function appHarness(savedProfile={money:500}) {
       setInput() {}
     },
     window: { addEventListener(type, listener) { windowListeners.set(type, listener); }, scrollTo() {}, dispatchEvent() { throw new Error('UI actions must use the game API.'); } },
-    localStorage: { getItem: () => JSON.stringify(savedProfile), setItem() {} },
+    localStorage: { getItem: () => JSON.stringify(savedProfile), setItem(key,value) { storageWrites.push([key,value]); } },
     Math: Object.assign(Object.create(Math), { random: () => 0 }),
     setTimeout: () => 0, clearTimeout() {},
     setInterval(callback) { const id = ++timerId; intervals.set(id, callback); return id; },
@@ -64,7 +64,7 @@ function appHarness(savedProfile={money:500}) {
   const source = readFileSync(new URL('./app.js', import.meta.url), 'utf8').replace(/^import .*;\n/gm, '');
   runInNewContext(`${source}\nglobalThis.uiHarness = { updateHUD, renderPlaybook, spinRarity, SPIN_ODDS, GAME_FORMATS, newOnlineSession, matchEnded, updateRematchStatus, setGame(value) { game = value; currentScreen = 'game'; }, setLocalTeam(value) { localTeam = value; localPlayerId = value; }, setLocalPlayerId(value) { localPlayerId = value; }, resetHUD() { hudSignature = null; } };`, context);
   return {
-    ...context.uiHarness, node, sessions, games,
+    ...context.uiHarness, node, sessions, games,storageWrites,accountChange:value=>accountNotification(value),
     key(key) { windowListeners.get('keydown')({key,target:{tagName:'BODY'},preventDefault(){},stopImmediatePropagation(){}}); },
     click(action, key, detail = 0, character, format, spin) {
       const button = { dataset: { action, key, character, format, spin } };
@@ -710,3 +710,7 @@ test('replay UI uses the engine permission so offline humans can skip bot goals'
  assert.equal(app.node('#skip-replay').hidden,false); allowed=false; app.updateHUD(match); assert.equal(app.node('#skip-replay').hidden,true);
 });
 test('Flow menu describes all20 real effects, exact prices and level15 lock without spending guest money',()=>{const app=appHarness({money:100});app.click('flows');const html=app.node('#modal-content').innerHTML;assert.match(html,/FIND YOUR FLOW/);assert.match(html,/\$26\.25/);assert.match(html,/\$71\.25/);assert.match(html,/level 15/);for(const f of FLOW_ROSTER)assert.ok(html.includes(f.name));assert.equal(app.node('#wallet-balance').textContent,'$100 · DEVICE');});
+
+test('account control renders a circular pixel initial and exposes persistent avatar controls and Pixel linking',()=>{const app=appHarness({name:'Raven',settings:{avatarColor:'#2e5195',avatarFont:'pixel'}});assert.match(app.node('#profile-avatar').innerHTML,/<rect/);assert.equal(app.node('#profile-avatar').style.backgroundColor,'#2e5195');app.click('profile');const html=app.node('#modal-content').innerHTML;assert.match(html,/Circle color/);assert.match(html,/Initial font/);assert.match(html,/Link account to Pixel Pulse/);assert.match(html,/Highly recommended/);assert.match(html,/Save on this device/);app.click('settings');assert.match(app.node('#modal-content').innerHTML,/Guest progress and preferences are saved only on this device/);});
+
+test('account data never overwrites the guest device save, and failed sync does not masquerade as guest mode',()=>{const app=appHarness({name:'Guest',money:77}),before=app.storageWrites.length,account={accountId:'10000000-0000-4000-8000-000000000001',profile:normaliseProgress({money:88,settings:{name:'Account player',avatarColor:'#2e5195',avatarFont:'pixel'}})};app.accountChange({account,pending:false});assert.equal(app.node('#wallet-balance').textContent,'$88 · ACCOUNT');assert.equal(app.node('#profile-avatar').style.backgroundColor,'#2e5195');assert.equal(app.storageWrites.length,before);app.accountChange({account,pending:false,lastError:'Account sync unavailable'});assert.equal(app.node('#wallet-balance').textContent,'$88 · ACCOUNT');assert.equal(app.node('#account-save-status').hidden,false);assert.equal(app.storageWrites.length,before);app.accountChange({account:null,pending:false});assert.equal(app.node('#wallet-balance').textContent,'$77 · DEVICE');assert.equal(app.node('#profile-name').textContent,'Guest');const saved=JSON.parse(app.storageWrites.at(-1)[1]);assert.equal(saved.money,77);assert.equal(saved.name,'Guest');});

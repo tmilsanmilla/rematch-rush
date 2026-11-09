@@ -196,6 +196,16 @@ export function createPixelHandler({ getDependencies, origin = SITE_ORIGIN, loca
         const fact = readAcceptedIdentityFact(verified.acceptedIdentity), identity = verified.identity;
         if (!fact || identity.issuer !== fact.issuer || identity.subject !== fact.subject || identity.credentialVersion !== fact.credentialVersion) throw new Error('Identity mismatch');
         const cutoff = live([identity.identityExpiresAt]), token = fresh();
+        // The same first-click identity journey returns an existing immutable
+        // owner immediately. It never tries Create or email/device adoption.
+        if(await store.hasKnownBinding(identity)){
+          live([identity.identityExpiresAt]);
+          const returned=await store.issueBoundSession({...identity,identityExpiresAt:new Date(cutoff).toISOString(),tokenHash:hash(token),stateHash:hash(state),browserHash:hash(browser)});
+          live([identity.identityExpiresAt]);
+          const end=Date.parse(returned?.expiresAt),remaining=Math.floor((end-clock())/1000);
+          if(!returned||!Number.isFinite(end)||end>cutoff||remaining<1)return redirect('refused',[clearDiscovery()]);
+          return redirect('returned',[cookie(SESSION_COOKIE,token,remaining,end),clearDiscovery()]);
+        }
         const saved = await store.saveDiscovery({ ...identity, acceptedIdentity: verified.acceptedIdentity, tokenHash: hash(token), stateHash: hash(state), browserHash: hash(browser), enrollment: snapshot, originalAttemptEnd });
         live([identity.identityExpiresAt]); const expiry = Date.parse(saved?.expiresAt), seconds = Math.floor((expiry-clock())/1000);
         if (!Number.isFinite(expiry) || expiry > cutoff || seconds < 1) return redirect('refused', [clearDiscovery()]);

@@ -210,6 +210,13 @@ export function createPostgresStore(config, { PoolClass, firstProfileHistory, en
         if (result.rowCount) await client.query('UPDATE rematch_pixel.sessions SET revoked_at=COALESCE(revoked_at,clock_timestamp()) WHERE attempt_state_hash=$1', [stateHash]);
       });
     },
+    hasKnownBinding({issuer,subject}={}) {
+      if(typeof issuer!=='string'||!issuer||issuer.length>2048||typeof subject!=='string'||!subject||subject.length>256)invalid();
+      return operation(async client=>{
+        const row=(await client.query('SELECT account_id,floor_epoch FROM rematch_pixel.bindings WHERE issuer=$1 AND subject=$2 FOR UPDATE',[issuer,subject])).rows[0];
+        return Boolean(row&&uuid.test(row.account_id));
+      });
+    },
     issueBoundSession({ issuer, subject, credentialVersion, identityExpiresAt, tokenHash, stateHash, browserHash } = {}) {
       if (typeof issuer !== 'string' || !issuer || issuer.length > 2048 || typeof subject !== 'string' || !subject || subject.length > 256 || !Number.isSafeInteger(credentialVersion) || credentialVersion < 0 || !validHash(tokenHash) || !validHash(stateHash) || !validHash(browserHash)) invalid();
       const expiry = date(identityExpiresAt);

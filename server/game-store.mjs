@@ -27,6 +27,7 @@ export function createGameStore(config,{history,PoolClass}={}){
   const actor=anonymous?null:(await live()).account_id;
   const tx={actor,now:async()=>date((await c.query('SELECT clock_timestamp() AS now')).rows[0].now),
    profile:async id=>{let r=(await c.query('SELECT money,progress FROM rematch_game.profiles WHERE account_id=$1 FOR UPDATE',[id])).rows[0];if(!r)r={money:0,progress:{}};return {...r.progress,money:joinGameMoney(r.money,r.progress?._moneyCents)};},
+   displayName:async id=>(await c.query('SELECT display_name FROM rematch_pixel.accounts WHERE id=$1',[id])).rows[0]?.display_name,
    saveProfile:async(id,p)=>{const n=normaliseProgress(p),{money,...progress}=n;const wallet=splitGameMoney(money);progress._moneyCents=wallet.cents;await c.query('INSERT INTO rematch_game.profiles(account_id,money,progress) VALUES($1,$2,$3::jsonb) ON CONFLICT(account_id) DO UPDATE SET money=EXCLUDED.money,progress=EXCLUDED.progress,updated_at=clock_timestamp()',[id,wallet.whole,JSON.stringify(progress)]);},
    operation:async id=>{const r=(await c.query('SELECT account_id AS actor,input_digest AS digest,result FROM rematch_game.operations WHERE id=$1',[id])).rows[0];return r;},
    saveOperation:async o=>{await c.query('INSERT INTO rematch_game.operations(id,account_id,kind,input_digest,result) VALUES($1,$2,$3,$4,$5::jsonb)',[o.id,o.actor,o.kind,o.digest,JSON.stringify(o.result)]);},

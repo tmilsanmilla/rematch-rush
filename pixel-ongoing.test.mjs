@@ -67,8 +67,10 @@ test('original discovery/identity cutoff is enforced before requesting a late on
 });
 test('an already accepted higher trusted epoch survives optional fresh-profile validation failure',async t=>{
  const x=await setup(t),account=randomUUID(),other=randomUUID(),oldTime=new Date(x.f.initialTime-1000).toISOString();
+ // Another receiving client binds after this browser's unbound discovery.
+ await discover(x);
  x.f.change(s=>{s.accounts.push({id:account,display_name:'Original owner',created_at:oldTime,spins:42});s.bindings.push({issuer:'https://pixel-pulse-websites.vercel.app/api/sso',subject:actorA,account_id:account,floor_epoch:1,created_at:oldTime});s.sessions.push({token_hash:hash('old'),issuer:'https://pixel-pulse-websites.vercel.app/api/sso',subject:actorA,account_id:account,signed_epoch:1,expires_at:new Date(x.f.now+120000).toISOString(),attempt_state_hash:hash('old attempt'),revoked_at:null});});
- await discover(x);const original=x.f.state.accounts[0];x.transport.setSyntheticActor({subject:actorA,credentialVersion:2});x.transport.setFault('profile');
+ const original=x.f.state.accounts[0];x.transport.setSyntheticActor({subject:actorA,credentialVersion:2});x.transport.setFault('profile');
  assert.equal(notice((await create(x)).response),'refused');assert.equal(x.f.state.bindings[0].floor_epoch,2);assert.notEqual(x.f.state.sessions[0].revoked_at,null);assert.deepEqual(x.f.state.accounts,[original]);assert.equal(x.transport.stats().sessionCookiePresent,false);
 });
 for(const mutation of ['policy','flow-generation','flow-target','flow-subject','flow-epoch','flow-end','discovery-subject','discovery-epoch','discovery-end'])test('final SQL transaction fence rolls back deferred modeled '+mutation+' corruption',async t=>{
@@ -85,3 +87,10 @@ test('last enrollment clock fence after final reads and policy wait refuses an e
 for(const problem of ['wrongEnrollmentHistory','badEnrollmentColumns','badEnrollmentConstraints'])test('unapproved/incomplete ongoing storage refuses before discovery writes: '+problem,async t=>{
  const x=await setup(t,{[problem]:true});await assert.rejects(x.transport.beginDiscovery());assert.equal(x.f.state.discoveries.length,0);assert.equal(x.f.state.enrollmentFlows.length,0);assert.equal(x.f.state.accounts.length,0);
 });
+
+test('first-click discovery of a known immutable owner returns its existing account without another Continue or Create',async t=>{
+ const x=await setup(t);await discover(x);assert.equal(notice((await create(x)).response),'created');const original=structuredClone(x.f.state.accounts);const proofs=x.transport.stats().proof;await x.transport.signOut();
+ const firstClick=await x.transport.beginDiscovery();assert.equal(notice(await x.transport.complete(firstClick)),'returned');assert.equal((await(await x.transport.session()).json()).authenticated,true);assert.deepEqual(x.f.state.accounts,original);assert.equal(x.transport.stats().proof,proofs);assert.equal(x.f.state.bindings.length,1);
+});
+
+test('an existing binding whose session mint refuses never falls through to a new discovery/Create choice',async t=>{const x=await setup(t);await discover(x);assert.equal(notice((await create(x)).response),'created');await x.transport.signOut();const before=structuredClone(x.f.state.accounts),discoveryCount=x.f.state.discoveries.length;t.mock.method(x.store,'issueBoundSession',async()=>null);const first=await x.transport.beginDiscovery();assert.equal(notice(await x.transport.complete(first)),'refused');assert.deepEqual(x.f.state.accounts,before);assert.equal(x.f.state.discoveries.length,discoveryCount);assert.equal(x.transport.stats().sessionCookiePresent,false);});

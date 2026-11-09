@@ -32,6 +32,7 @@ export function initPixelAccountUI({
   now = () => Date.now(),
   setTimer = globalThis.setTimeout,
   clearTimer = globalThis.clearTimeout,
+  onSessionChange = () => { if(typeof globalThis.dispatchEvent==='function')globalThis.dispatchEvent(new Event('rematch-account-changed')); },
 } = {}) {
   const root = document?.getElementById('pixel-account');
   const signIn = document?.getElementById('pixel-account-sign-in');
@@ -43,6 +44,7 @@ export function initPixelAccountUI({
   const createPanel = document?.getElementById('pixel-account-create-confirmation');
   const confirmCreate = document?.getElementById('pixel-account-create-confirm');
   const cancelCreate = document?.getElementById('pixel-account-create-cancel');
+  const returnExisting = document?.getElementById('pixel-account-return');
   if (!root || !signIn || !signOut || !name || !message || typeof fetchImpl !== 'function') return null;
 
   let available = false;
@@ -88,6 +90,7 @@ export function initPixelAccountUI({
     if (createPanel) createPanel.hidden = !canCreate || !confirmingCreate;
     if (confirmCreate) confirmCreate.disabled = busy;
     if (cancelCreate) cancelCreate.disabled = busy;
+    if (returnExisting) returnExisting.disabled = busy;
     if (text !== undefined) {
       message.textContent = text;
       message.setAttribute('data-tone', tone);
@@ -117,6 +120,7 @@ export function initPixelAccountUI({
     confirmingCreate = false;
     name.textContent = '';
     render('Your Rematch session ended. Continue again to return to your linked account.');
+    onSessionChange();
   }
 
   async function refresh() {
@@ -147,7 +151,9 @@ export function initPixelAccountUI({
         render(uncertain ? 'You have returned to your Rematch account. Your device player profile stays separate.' : 'Signed in to Rematch. Your device player profile stays separate.');
         const session = sessionVersion;
         expiryTimer = setTimer(() => { if (!disposed && session === sessionVersion) expireSession(); }, remaining);
+        onSessionChange();
       } else {
+        if(discoveryReady&&notice==='discovered'&&!uncertain)confirmingCreate=true;
         if (discoveryReady) { const session = sessionVersion; expiryTimer = setTimer(() => { if (!disposed && session === sessionVersion) { discoveryReady = false; confirmingCreate = false; render('Identity confirmation expired. Identify with Pixel Pulse again.'); } }, discoveryExpiry - now()); }
         render(noticeText || (result.authenticated === true ? 'Continue again to confirm your current Rematch session.' :
           firstConnections && ongoingEnrollment ? discoveryReady ? 'Identity confirmed. Review Create a separate Rematch profile; your device progress stays separate.' : 'Identify with Pixel Pulse first, then explicitly create a separate Rematch profile.' : firstConnections && hasCreateControls ? 'Return to your linked account, or create a separate Rematch profile with Pixel Pulse.' : 'Return to an already linked account. New connections are unavailable.'), noticeText && ['refused', 'uncertain'].includes(notice) ? 'error' : 'status');
@@ -161,8 +167,12 @@ export function initPixelAccountUI({
     }
   }
 
-  async function startSignIn() {
+  async function startSignIn(returnOnly = false) {
     if (disposed || busy || !available || authenticated) return false;
+    if(returnOnly!==true&&ongoingEnrollment&&firstConnections&&!uncertain){
+      if(discoveryReady){openCreateConfirmation();return false;}
+      return startDiscovery();
+    }
     const current = ++generation;
     confirmingCreate = false;
     busy = true;
@@ -239,6 +249,7 @@ export function initPixelAccountUI({
       authenticated = false;
       name.textContent = '';
       render('Signed out of Rematch. Your Pixel Pulse sign-in and device player profile are unchanged.');
+      onSessionChange();
       return true;
     } catch {
       if (!disposed && current === generation) render('Could not confirm Rematch sign-out. Please try again.', 'error');
@@ -254,9 +265,11 @@ export function initPixelAccountUI({
   const onCreate = () => { openCreateConfirmation(); };
   const onConfirmCreate = () => { void startCreate(); };
   const onCancelCreate = () => { closeCreateConfirmation(); };
+  const onReturnExisting = () => { void startSignIn(true); };
   signIn.addEventListener('click', onSignIn);
   discover?.addEventListener('click', onDiscover);
   signOut.addEventListener('click', onSignOut);
+  returnExisting?.addEventListener('click', onReturnExisting);
   if (hasCreateControls) {
     create.addEventListener('click', onCreate);
     confirmCreate.addEventListener('click', onConfirmCreate);
@@ -272,6 +285,7 @@ export function initPixelAccountUI({
       signIn.removeEventListener('click', onSignIn);
       discover?.removeEventListener('click', onDiscover);
       signOut.removeEventListener('click', onSignOut);
+      returnExisting?.removeEventListener('click', onReturnExisting);
       if (hasCreateControls) {
         create.removeEventListener('click', onCreate);
         confirmCreate.removeEventListener('click', onConfirmCreate);
