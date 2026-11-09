@@ -6,8 +6,11 @@ export const QUESTS=Object.freeze({
  powershooter:[['goals',30,'Score 30 goals'],['steals',30,'Steal the ball 30 times'],['skillGoals',25,'Score with moves 25 times']],
  playmaker:[['passes',55,'Complete 55 passes'],['assists',30,'Make 30 assists'],['goals',25,'Score 25 goals']],
  streetdribbler:[['ankleBreaks',100,'Beat a tackler 100 times'],['dribbleGoals',50,'Beat a tackler then score 50 times'],['dribbles',200,'Dribble 200 times']],
- supersonic:[['movementSeconds',1800,'Move for 30 cumulative minutes'],['continuousGames',1,'Finish a match without stopping'],['steals',100,'Steal the ball 100 times'],['fourthAwakeningUses',10,'Use awakening move 4 ten times']],
+ supersonic:[['movementSeconds',1800,'Move for 30 cumulative minutes'],['steals',100,'Steal the ball 100 times'],['fourthAwakeningUses',10,'Use awakening move 4 ten times']],
 });
+// One quest may unlock multiple moves. Existing saved counters and variant slots
+// keep their original meaning; the removed nonstop quest is no longer required.
+export function moveQuests(character){const quests=QUESTS[character]||[];return character==='supersonic'?[quests[0],quests[0],quests[1],quests[2]]:quests;}
 export const STYLE_IDS=Object.freeze(['none','manmarker','ice','powershooter','ninja','playmaker','falcon','streetdribbler','magician','trapper','serpent','butterflydancer','supersonic','emperor']);
 const safeMap=value=>Object.fromEntries(Object.entries(value&&typeof value==='object'?value:{}).filter(([key,data])=>STYLE_IDS.includes(key)&&data&&typeof data==='object'&&!Array.isArray(data)));
 const integer=(n,max=100000000)=>Number.isSafeInteger(n)?Math.max(0,Math.min(max,n)):0;
@@ -17,7 +20,7 @@ export function resultBonus(home,away){const diff=Math.abs(home-away);if(!diff)r
 export function statMoney(stats={}){return integer(stats.ankleBreaks,500)+integer(stats.awakenings,100)+2*integer(stats.steals,500)+5*integer(stats.assists,100)+10*integer(stats.goals,100);}
 export function matchReward({score=[0,0],team=0,stats={},abandoned=false,opponentAbandoned=false,practice=false}){if(abandoned)return 0;return statMoney(stats)+(opponentAbandoned||practice?0:resultBonus(integer(score[team],100),integer(score[1-team],100)));}
 export function leagueScore(stats={},complete=true){return 10*integer(stats.goals,100)+5*integer(stats.assists,100)+3*integer(stats.steals,500)+integer(stats.ankleBreaks,500)+integer(stats.awakenings,100)+(complete?5:0);}
-export function variantUnlocks(progress,character){const data=progress.characters?.[character]||{},quests=QUESTS[character]||[];return {moves:quests.map(([key,target])=>(data[key]||0)>=target),awakening:(data.points||0)>=300};}
+export function variantUnlocks(progress,character){const data=progress.characters?.[character]||{},quests=moveQuests(character);return {moves:quests.map(([key,target])=>(data[key]||0)>=target),awakening:(data.points||0)>=300};}
 export function selectedVariants(progress,character){const unlocked=variantUnlocks(progress,character),selected=progress.dlsi?.[character]||{};return {moves:unlocked.moves.map((yes,i)=>yes&&selected.moves?.[i]===true),awakening:unlocked.awakening&&selected.awakening===true};}
 export function toggleVariant(progress,character,slot,value){const next=normaliseProgress(progress),unlocks=variantUnlocks(next,character);next.dlsi[character]||={moves:[],awakening:false};if(slot==='awakening'){if(!unlocks.awakening)throw Error('Earn 300 league points first.');next.dlsi[character].awakening=!!value;}else{if(!Number.isInteger(slot)||!unlocks.moves[slot])throw Error('Complete this move’s quest first.');next.dlsi[character].moves[slot]=!!value;}return next;}
 export function settleProgress(progress,{matchId,character,team=0,score,stats={},isBot=false,format='',abandoned=false,opponentAbandoned=false,leagueOpen=true}){

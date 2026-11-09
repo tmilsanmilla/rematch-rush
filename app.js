@@ -1,9 +1,9 @@
-import {createGameAccount} from './game-account.js?v=1';
-import {normaliseProgress,settleProgress,buySpin,toggleVariant,selectedVariants,variantUnlocks,QUESTS,SPIN_PRICES} from './progression.js?v=1';
+import {createGameAccount} from './game-account.js?v=2';
+import {normaliseProgress,settleProgress,buySpin,toggleVariant,selectedVariants,variantUnlocks,moveQuests,QUESTS,SPIN_PRICES} from './progression.js?v=2';
 import { MATCH_RULES, ONLINE_FORMATS, rulesFor } from './match-rules.js?v=2';
-import { Game, ACTION_COOLDOWNS } from './game.js?v=22';
-import { ROSTER, getSkills } from './characters.js?v=9';
-import { OnlineSession } from './online.js?v=13';
+import { Game, ACTION_COOLDOWNS } from './game.js?v=23';
+import { ROSTER, getSkills } from './characters.js?v=10';
+import { OnlineSession } from './online.js?v=14';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -74,7 +74,7 @@ const titles = { none: 'THE GAME.', manmarker: 'THE DEFENSE.', ice: 'THE FREEZE.
 const stageWords = { none: 'ROOKIE', manmarker: 'DEFEND', ice: 'ICE COLD', powershooter: 'POWER', ninja: 'UNSEEN', playmaker: 'VISION', falcon: 'SOAR', streetdribbler: 'GINGA', magician: 'SPELLBOUND', supersonic: 'VELOCITY', trapper: 'TRAP', serpent: 'UNSTOPPABLE', butterflydancer: 'SHOWTIME', emperor: 'BOW BEFORE ME' };
 
 let guestProgress=normaliseProgress(profile),usingAccount=false,roundReceipt=null;
-const gameAccount=createGameAccount({onChange({account}){if(account){if(!usingAccount)guestProgress=normaliseProgress(profile);usingAccount=true;Object.assign(profile,account.profile);}else if(usingAccount){Object.assign(profile,guestProgress);usingAccount=false;}const nav=$('#nav-admin');if(nav)nav.hidden=!account?.admin;updateWallet();if(currentScreen==='characters')renderCharacters();}});
+const gameAccount=createGameAccount({onChange({account,pending,pendingAction,lastReward,lastError}){const status=$('#account-save-status'),message=$('#account-save-message');if(status&&message){status.hidden=!pending&&!lastReward;message.textContent=pending?(pendingAction==='finish'?'Match result waiting to save. ':'Account operation waiting. ')+(account?'Retry the saved operation.':'Sign in on the live game to resume it.')+(lastError?' '+lastError:''):lastReward?`Saved to account: +$${lastReward.money} · +${lastReward.points} GLOBAL DLSI points.`:'';const retry=$('[data-action="retry-account"]',status);if(retry)retry.hidden=!pending;}if(account){if(!usingAccount)guestProgress=normaliseProgress(profile);usingAccount=true;Object.assign(profile,account.profile);}else if(usingAccount){Object.assign(profile,guestProgress);usingAccount=false;}const nav=$('#nav-admin');if(nav)nav.hidden=!account?.admin;updateWallet();if(currentScreen==='characters')renderCharacters();}});
 function updateWallet(){const wallet=$('#wallet-balance');if(wallet)wallet.textContent=`$${profile.money||0}${usingAccount?' · ACCOUNT':' · DEVICE'}`;}
 function save() { try { const guest=usingAccount?guestProgress:normaliseProgress(profile);localStorage.setItem(storageKey, JSON.stringify({...profile,...guest})); } catch { /* Play remains available without storage. */ } }
 function syncProfile() {
@@ -192,7 +192,7 @@ function renderPlaybook(character) {
 }
 
 function guideVariants(character, awakened = false, ability = {}, previewDlsi=false) {
-  const player = { character: character.id,dlsi:previewDlsi?{moves:(QUESTS[character.id]||[]).map(()=>true),awakening:true}:selectedVariants(profile,character.id),overtimeAwakening:previewDlsi,awakened,awakeningLeft:awakened?1:0, ability: ['emperor', 'magician'].includes(character.id) ? { chemicalPartnerId: -1, ...ability } : ability };
+  const player = { character: character.id,dlsi:previewDlsi?{moves:moveQuests(character.id).map(()=>true),awakening:true}:selectedVariants(profile,character.id),overtimeAwakening:previewDlsi,awakened,awakeningLeft:awakened?1:0, ability: ['emperor', 'magician'].includes(character.id) ? { chemicalPartnerId: -1, ...ability } : ability };
   const withBall = getSkills(player, awakened, true), withoutBall = getSkills(player, awakened, false);
   return withBall.flatMap((skill, index) => {
     const alternate = withoutBall[index];
@@ -590,7 +590,7 @@ document.addEventListener('click', event => {
   else if (action === 'configure-bots') configureBots();
   else if (action === 'start-configured-bots') startMatch('bot');
   else if (action === 'update-log') showUpdateLog();
-  else if(action==='dlsi')void leagueModal();
+  else if(action==='dlsi'||action==='refresh-league')void leagueModal();
   else if(action==='admin')void adminModal();
   else if(action==='dismiss-appeal')void dismissAppeal(button.dataset.id);
   else if(action==='retry-account')void retryAccount();
@@ -667,12 +667,12 @@ void gameAccount.refresh();window.addEventListener('focus',()=>{if(currentScreen
 
 renderModes();
 
-function showUpdateLog(){openModal(`<span class="modal-eyebrow">REMATCH RUSH / UPDATE LOG</span><h2 class="modal-title" id="modal-title">DESTRUCTION LEAGUE I</h2><div class="release-notes"><h3>Football & presentation</h3><p>36 power per second · three times faster charging. Equal-power backward kicks. Cleaner light grass and larger controls below the field. Faster travel, shorter stuns, improved keeper throws and wide back-pass clearances.</p><h3>Matches & replays</h3><p>3v3, Raw Skill, penalties and configurable teams. Unambiguous room codes. Last 25 seconds at 2×, including cinematic moves. All players press R to skip. Tied matches enter golden-goal overtime.</p><h3>Your playing style</h3><p>Earn game money, buy spins, complete character quests and unlock optional Destruction League moves. Stage I lasts two weeks; the lowest five characters leave the league leaderboard after the stage.</p></div><button class="button primary full-button" data-action="close-modal">Back to the pitch</button>`,true);}
+function showUpdateLog(){openModal(`<span class="modal-eyebrow">REMATCH RUSH / UPDATE LOG</span><h2 class="modal-title" id="modal-title">DESTRUCTION LEAGUE I</h2><div class="release-notes"><h3>Football & presentation</h3><p>36 power per second · three times faster charging. Equal-power backward kicks. Cleaner light grass and larger controls below the field. Faster travel, shorter stuns, improved keeper throws and wide back-pass clearances.</p><h3>Matches & replays</h3><p>3v3, Raw Skill, penalties and configurable teams. Unambiguous room codes. Last 25 seconds at 2×, including cinematic moves. All players press R to skip. Tied matches enter golden-goal overtime.</p><h3>DLSI improvements</h3><p>One-second Ginga inputs. Street Dribbling Style beats defenders in live play before its knuckleball; Goal In Time has a new flow cinematic and protected charge. Supersonic’s first quest unlocks moves 1 and 2. Shared global standings show saved account points; device points remain separate.</p><h3>Your playing style</h3><p>Earn game money, buy spins, complete character quests and unlock optional Destruction League moves. Stage I lasts two weeks; the lowest five characters leave the league leaderboard after the stage.</p></div><button class="button primary full-button" data-action="close-modal">Back to the pitch</button>`,true);}
 
 function variantPanel(character){
- const quests=QUESTS[character.id];if(!quests)return '';
+ const quests=moveQuests(character.id);if(!quests.length)return '';
  const unlocks=variantUnlocks(profile,character.id),data=profile.characters?.[character.id]||{},variants=selectedVariants(profile,character.id);
- return `<section class="variant-panel"><h3>Destruction League I</h3><p>${data.points||0} / 300 points for awakening</p>${quests.map(([key,target,label],i)=>`<label><input type="checkbox" data-variant="${character.id}" data-slot="${i}"${variants.moves[i]?' checked':''}${unlocks.moves[i]?'':' disabled'}><span>DLSI move ${i+1}<small>${esc(label)} · ${Math.min(target,Math.floor(data[key]||0))}/${target}</small></span></label>`).join('')}<label><input type="checkbox" data-variant="${character.id}" data-slot="awakening"${variants.awakening?' checked':''}${unlocks.awakening?'':' disabled'}><span>DLSI awakening<small>${unlocks.awakening?'Unlocked · choose either version':'Earn 300 league points'}</small></span></label></section>`;
+ return `<section class="variant-panel"><h3>Destruction League I</h3>${character.id==='supersonic'?'<p>First quest unlocks both moves 1 and 2.</p>':''}<p>${data.points||0} / 300 points for awakening</p>${quests.map(([key,target,label],i)=>`<label><input type="checkbox" data-variant="${character.id}" data-slot="${i}"${variants.moves[i]?' checked':''}${unlocks.moves[i]?'':' disabled'}><span>DLSI move ${i+1}<small>${esc(label)} · ${Math.min(target,Math.floor(data[key]||0))}/${target}</small></span></label>`).join('')}<label><input type="checkbox" data-variant="${character.id}" data-slot="awakening"${variants.awakening?' checked':''}${unlocks.awakening?'':' disabled'}><span>DLSI awakening<small>${unlocks.awakening?'Unlocked · choose either version':'Earn 300 league points'}</small></span></label></section>`;
 }
 async function changeVariant(character,slot,enabled){try{const key=slot==='awakening'?slot:Number(slot);if(usingAccount)await gameAccount.mutate('variant',{character,slot:key,enabled});else{Object.assign(profile,toggleVariant(profile,character,key,enabled));save();}renderCharacters();toast('Move variant updated. Applies next match.');}catch(e){toast(e.message);renderCharacters();}}
 async function equipStyle(id,close){try{if(!profile.unlocked.includes(id))return;if(usingAccount)await gameAccount.mutate('equip',{character:id});else{profile.equipped=id;save();}selected=id;renderCharacters();if(close)closeModal();toast(`${characterOf(id).name} equipped.`);}catch(e){toast(e.message);}}
@@ -684,8 +684,8 @@ async function settleRound(result,{abandoned=false,opponentAbandoned=false}={}){
 }
 async function retryAccount(){try{const r=await gameAccount.retry();if(r){updateWallet();const el=$('#match-earnings');if(el)el.textContent=r.money===undefined?'Account operation confirmed.':`+$${r.money} · +${r.points} league points`;toast('Account operation confirmed.');}else toast('No pending account operation.');}catch(e){toast(e.message);}}
 async function leagueModal(){
- openModal('<span class="modal-eyebrow">DESTRUCTION LEAGUE / STAGE I</span><h2 class="modal-title" id="modal-title">EVERY STYLE.<br>ONE STAGE.</h2><p role="status" id="league-content">Loading league standings…</p>',true);
- try{const {league}=await gameAccount.leaderboard();const el=$('#league-content');if(!el)return;el.outerHTML=`<div id="league-content"><p>Stage I · ${league.ended?'Finished':'Ends '+new Date(league.endsAt).toLocaleDateString()} · lowest five styles eliminated from league standings. All remain playable.</p><ol class="league-table">${league.rows.map(r=>`<li class="${r.eliminated?'eliminated':''}"><b>${r.rank}</b><span>${esc(characterOf(r.id).name)}${r.eliminated?' · eliminated':''}</span><strong>${r.points}</strong></li>`).join('')}</ol></div>`;}
+ openModal('<span class="modal-eyebrow">DESTRUCTION LEAGUE / GLOBAL</span><h2 class="modal-title" id="modal-title">GLOBAL STANDINGS.</h2><p role="status" id="league-content">Loading shared standings…</p>',true);
+ try{const {league}=await gameAccount.leaderboard();const el=$('#league-content');if(!el)return;const own=gameAccount.current?.profile,points=p=>Object.values(p?.characters||{}).reduce((n,c)=>n+(c.points||0),0);el.outerHTML=`<div id="league-content"><p>Stage I · ${league.ended?'Finished':'Ends '+new Date(league.endsAt).toLocaleDateString()} · shared by every signed-in player.</p><p class="league-account-note">${own?`Your account: <strong>${points(own)} saved DLSI points</strong>. Completed account matches contribute to these global style totals.`:`You are playing on this device. <strong>${points(profile)} device points</strong> stay here. Sign in at <a href="https://rematch-rush.vercel.app/">the live game</a> to earn global points; device progress is kept separate.`}</p><p>Points appear after the match result is saved. ${gameAccount.pending?'Your account has a pending save — use Retry saved operation.':''}</p><ol class="league-table">${league.rows.map(r=>`<li class="${r.eliminated?'eliminated':''}"><b>${r.rank}</b><span>${esc(characterOf(r.id).name)}${r.eliminated?' · eliminated':''}${own?`<small>You: ${own.characters?.[r.id]?.points||0}</small>`:''}</span><strong>${r.points} <small>PTS</small></strong></li>`).join('')}</ol><button class="button outline" data-action="refresh-league">Refresh global standings</button><p>Lowest five styles leave the standings at the end of the stage. All remain playable.</p></div>`;}
  catch{const el=$('#league-content');if(el)el.textContent='Global standings are unavailable. Your device quests and rewards remain saved separately.';}
 }
 async function adminModal(){if(!gameAccount.current?.admin){toast('Administrator access required.');return;}

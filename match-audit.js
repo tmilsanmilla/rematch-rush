@@ -9,6 +9,13 @@ export function cleanMatchInput(value){if(!value||typeof value!=='object')throw 
  if(value.skill!=null){if(!Number.isInteger(value.skill)||value.skill<1||value.skill>6)throw Error('Invalid recorded move.');input.skill=value.skill;}
  if(value.qte!=null){if(!/^[a-z]$/.test(value.qte))throw Error('Invalid recorded letter.');input.qte=value.qte;}return input;
 }
-export function recordInput(game,id,input){if(!game.audit||game.replayingAudit)return;const p=game.state.players.find(p=>p.id===id);if(!p||p.isBot)return;if(game.audit.events.length>=30000){game.audit.overflow=true;return;}const clean=cleanMatchInput(input),old=(game.auditInputs||={})[id]||{};const delta={};for(const [key,value]of Object.entries(clean)){if(['action','pass','shootRelease','cancelShot','awaken','skipReplay'].includes(key)){if(value)delta[key]=true;}else if(['skill','qte'].includes(key))delta[key]=value;else if(JSON.stringify(value)!==JSON.stringify(old[key]))delta[key]=value;}game.auditInputs[id]={...old,...clean};if(Object.keys(delta).length)game.audit.events.push([game.audit.steps.length,id,delta]);}
+const edges=new Set(['action','pass','shootRelease','cancelShot','awaken','skipReplay','skill','qte']);
+const same=(key,a,b)=>key==='aim'?a?.x===b?.x&&a?.y===b?.y:key==='keys'?['w','a','s','d'].every(k=>!!a?.[k]===!!b?.[k]):a===b;
+export function recordInput(game,id,input){if(!game.audit||game.replayingAudit)return;const p=game.state.players.find(p=>p.id===id);if(!p||p.isBot)return;const clean=cleanMatchInput(input),old=(game.auditInputs||={})[id]||{},delta={};let edge=false;for(const [key,value]of Object.entries(clean)){if(edges.has(key)){if(value){delta[key]=value;edge=true;}}else if(!same(key,value,old[key]))delta[key]=value;}game.auditInputs[id]={...old,...clean};if(!Object.keys(delta).length)return;
+ // Coalesce only adjacent continuous packets for the same actor and simulation
+ // step. An action/release/QTE is an ordering barrier and is never collapsed.
+ const events=game.audit.events,last=events.at(-1),step=game.audit.steps.length;
+ if(!edge&&last?.[0]===step&&last[1]===id&&!Object.keys(last[2]).some(k=>edges.has(k))){Object.assign(last[2],delta);return;}
+ if(events.length>=30000){game.audit.overflow=true;return;}events.push([step,id,delta]);}
 
 export function recordStep(game,dt){if(!game.audit||game.replayingAudit)return;if(game.audit.steps.length>=60000){game.audit.overflow=true;return;}game.audit.steps.push(dt);}

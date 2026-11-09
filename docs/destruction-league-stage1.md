@@ -45,7 +45,7 @@ require5 distinct owned characters. Existing guest unlocks are retained.
 Human actors earn style points: goal10, assist5, steal3, ankle-break1,
 awakening1, completed match5. Stage I lasts14days. The lowest5 styles leave the
 league standings after the stage; they remain playable.300 style points unlock
-the DLSI awakening. Each quest separately unlocks its move:
+the DLSI awakening. Quests unlock these move slots:
 
 | Style | Move quests |
 | --- | --- |
@@ -53,7 +53,7 @@ the DLSI awakening. Each quest separately unlocks its move:
 | Powershooter |30 goals;30 steals;25 skill goals|
 | Playmaker |55 passes;30 assists;25 goals|
 | Street Dribbler |100 ankle-breaks;50 dribble-then-goals;200 dribbles|
-| Supersonic |1800 movement seconds;one nonstop match;100 steals;10 fourth-awakening uses|
+| Supersonic |1800 movement seconds unlock moves 1 and 2;100 steals unlock move 3;10 fourth-awakening uses unlock move 4|
 
 ## Account storage and administrator boundary
 
@@ -106,3 +106,13 @@ It has not been executed against a native database for this expansion.
 Production operator application/admin bootstrap/configuration is separate.
 No two-physical-device FPS or genuine account settlement acceptance is claimed
 from the offline tests or static local preview.
+
+Ginga letter prompts last one second. Street Dribbling Style resumes the actual
+match, approaches defenders in own-goal order and performs flick/fake/skill
+dribbles before its 80-power knuckleball. Goal In Time has a protected three-second
+charge with flow rings and a 100-power curve.
+
+The DLSI table reads shared account totals, including from a static local preview.
+Guest points are visibly device-only. Pending account finishes retain their exact
+receipt across sign-in and resume after successful reauthentication; unknown
+responses cannot double-award. No session expiry or account proof is bypassed.

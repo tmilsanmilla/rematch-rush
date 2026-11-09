@@ -1,0 +1,14 @@
+{
+  "source": "1068491bca958ff0e864235dbd6d8108bc08905e",
+  "engine": "dlsi-stage1-20261107",
+  "purpose": "Immutable simulation for settling already-started published matches. Not shipped as a browser asset.",
+  "files": {
+    "game.js": "a87b92e0e05f48449f2e4b8ad8573d81edb6bf4b9b11ed444b9d939f65be819c",
+    "characters.js": "9d3ec9fb12a40f449148015a6a3630b4bdcce1c2fbe167d6f244667c50ed768d",
+    "bot-brain.js": "2f42b77378119b2b25d44868abbc21ed0394bd47998fbbe6a46500a912dd604b",
+    "dlsi.js": "399dea2ecf127b168c5930e5e4839a2b80bb004362c377988e3e45fbc127e9be",
+    "penalties.js": "8916574fb5328008bbc5dbca2cff57ecaba3d170ab3732ccea316f443b4fac45",
+    "match-rules.js": "3eee9408b93cfafbad325f51f433eda141951e58ac9c759dc36feb1db3891f03",
+    "match-audit.js": "90cd7bb0ead57ec3812fa344fc96045b9f4a704ef739e46ffab45bac62a2cf5c"
+  }
+}

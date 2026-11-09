@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f5f3ea" />
   <meta name="description" content="Own the pitch. Find your style. Character-powered football with 1v1, 2v2 and co-op bot matches." />
   <title>Rematch Rush — Own the pitch.</title>
-  <link rel="stylesheet" href="./style.css?v=19" />
+  <link rel="stylesheet" href="./style.css?v=20" />
 </head>
 <body>
   <svg class="svg-defs" aria-hidden="true"><defs>
@@ -41,6 +41,7 @@
       </div>
     </section>
 
+    <section id="account-save-status" class="account-save-status" role="status" hidden><span id="account-save-message"></span><button class="text-button" data-action="retry-account">Retry saved operation</button></section>
     <main id="home-screen" class="screen home-screen">
       <section class="hero lobby-hero">
         <div class="hero-copy"><div class="eyebrow"><span class="live-dot"></span> NEW UPDATE / ARRIVAL OF THE BEST</div><h1>REMATCH<br><span>RUSH</span><sup>®</sup></h1><p class="hero-strap">BIG PLAYS. ZERO SECOND CHANCES.</p><p class="hero-description">Outplay your rival. Awaken your power.<br>Make the pitch remember your name.</p><div class="hero-buttons"><span class="lobby-prompt">Pick a mode below. Own the pitch.</span><button class="text-button" data-action="characters">Find your style <span>↗</span></button></div><div class="availability"><span class="small-square"></span> FREE TO PLAY <span>·</span> NO DOWNLOAD NEEDED</div></div>
@@ -67,7 +68,7 @@
   </div>
   <div class="modal-backdrop" id="modal" hidden><section class="modal-card" id="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title"><button class="modal-close icon-button" data-action="close-modal" aria-label="Close dialog"><svg><use href="#icon-close"/></svg></button><div id="modal-content"></div></section></div>
   <div class="toast" id="toast" role="status" hidden></div>
-  <script type="module" src="./app.js?v=24"></script>
+  <script type="module" src="./app.js?v=25"></script>
   <script type="module" src="./pixel-account.js?v=4"></script>
 </body>
 </html>

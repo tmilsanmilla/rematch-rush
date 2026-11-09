@@ -5,7 +5,7 @@ import { runInNewContext } from 'node:vm';
 import { ROSTER, getSkills } from './characters.js';
 import { normalizeRoomConfig } from './online.js';
 import {MATCH_RULES,ONLINE_FORMATS,rulesFor} from './match-rules.js';
-import {normaliseProgress,settleProgress,buySpin,toggleVariant,selectedVariants,variantUnlocks,QUESTS,SPIN_PRICES} from './progression.js';
+import {normaliseProgress,settleProgress,buySpin,toggleVariant,selectedVariants,variantUnlocks,moveQuests,QUESTS,SPIN_PRICES} from './progression.js';
 import {randomUUID} from 'node:crypto';
 import { ACTION_COOLDOWNS } from './game.js';
 
@@ -31,7 +31,7 @@ function appHarness(savedProfile={money:500}) {
     body: { classList: { toggle() {} }, style: {} },
   };
   const context = {
-    document, ROSTER, getSkills, ACTION_COOLDOWNS,MATCH_RULES,ONLINE_FORMATS,rulesFor,normaliseProgress,settleProgress,buySpin,toggleVariant,selectedVariants,variantUnlocks,QUESTS,SPIN_PRICES,crypto:{randomUUID},createGameAccount:()=>({current:null,pending:null,refresh:async()=>null,leaderboard:async()=>{throw Error('offline');}}),
+    document, ROSTER, getSkills, ACTION_COOLDOWNS,MATCH_RULES,ONLINE_FORMATS,rulesFor,normaliseProgress,settleProgress,buySpin,toggleVariant,selectedVariants,variantUnlocks,moveQuests,QUESTS,SPIN_PRICES,crypto:{randomUUID},createGameAccount:()=>({current:null,pending:null,refresh:async()=>null,leaderboard:async()=>{throw Error('offline');}}),
     OnlineSession: class {
       constructor(options) { this.options = options; this.role = 'host'; this.closed = false; this.starts = 0; sessions.push(this); }
       queue(...args) { this.queued = args; return new Promise((resolve, reject) => { this.resolveQueue = resolve; this.rejectQueue = reject; }); }

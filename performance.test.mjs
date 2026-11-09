@@ -83,7 +83,7 @@ test('canvas resize invalidates its bounds and bitmap without adding another obs
   }
 });
 
-test('slow frames advance the full elapsed time with bounded physics steps and one render', () => {
+test('slow frames render after bounded catch-up and retain all simulation debt', () => {
   const game = new Game(null, { mode: 'online' }), steps = [], states = [];
   game.state.kickoff = null;game.last = 0;
   const original = game.update.bind(game);let renders = 0, flushed = 0;
@@ -92,13 +92,15 @@ test('slow frames advance the full elapsed time with bounded physics steps and o
   game.flushAimInput = () => { flushed++; };
   game.options.onState = state => { states.push(state); };
   game.frameStep(500);
-  assert.ok(Math.abs(game.state.time - 299.5) < .000001);
-  assert.ok(Math.abs(steps.reduce((sum, dt) => sum + dt, 0) - .5) < .000001);
+  assert.ok(Math.abs(steps.reduce((sum,dt)=>sum+dt,0)+game.simulationDebt-.5)<.000001);
+  assert.ok(game.simulationDebt>0);
   assert.ok(steps.every(dt => dt > 0 && dt <= 1 / 30));
-  assert.ok(steps.length <= 15);
+  assert.ok(steps.length <= 8);
   assert.equal(renders, 1);assert.equal(flushed, 1);assert.equal(states.length, 1);
+  for(let i=0;i<100&&game.simulationDebt>1e-9;i++)game.frameStep(500);
+  assert.ok(Math.abs(game.state.time-299.5)<.000001);
   steps.length = 0;game.frameStep(60000);
-  assert.ok(steps.length <= 15, 'returning after a background pause cannot trigger unbounded catch-up work');
+  assert.ok(steps.length <= 8, 'returning after a background pause cannot trigger unbounded catch-up work');
 });
 
 test('guest animation frames render without duplicating authoritative HUD and simulation updates', () => {

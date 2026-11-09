@@ -1,4 +1,4 @@
-import {dlsiSkills,activateDlsi,awakenDlsi,tickDlsi} from './dlsi.js?v=1';
+import {dlsiSkills,activateDlsi,awakenDlsi,tickDlsi} from './dlsi.js?v=2';
 const S = (name, cooldown, description, extra = {}) => ({ name, cooldown, description, ...extra });
 const YELLOW = '#ffe45e';
 const ORANGE = '#ff923d';
