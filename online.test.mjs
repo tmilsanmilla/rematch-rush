@@ -16,7 +16,8 @@ class Emitter {
 
 function peerNetwork() {
   const peers = new Map(), instances = [], connections = [], messages = [];
-  const delivery = { synchronous: false }, faults = { collisions: 0 };
+  const delivery = { synchronous: false }, faults = { collisions: 0, holdQueueAcks: false };
+  const delayedQueueAcks = [];
   let generatedId = 0;
   class Connection extends Emitter {
     constructor(metadata) {
@@ -28,6 +29,7 @@ function peerNetwork() {
       const copy = structuredClone(message);
       messages.push({ connection: this, message: copy });
       const deliver = () => { if (this.other.open) this.other.emit('data', copy); };
+      if (faults.holdQueueAcks && copy.type === 'ack' && copy.protocol?.endsWith('-queue')) { delayedQueueAcks.push(deliver); return; }
       if (delivery.synchronous) deliver(); else queueMicrotask(deliver);
     }
     close() {
@@ -70,7 +72,7 @@ function peerNetwork() {
       this.connections.forEach(connection => connection.close());
     }
   }
-  return { Peer, peers, instances, connections, messages, delivery, faults };
+  return { Peer, peers, instances, connections, messages, delivery, faults, delayedQueueAcks };
 }
 
 async function flush() { await new Promise(resolve => setImmediate(resolve)); }
@@ -761,6 +763,34 @@ test('1v1 matchmaking pairs two real waiting players automatically with no join 
   }
   assert.equal([...network.peers.keys()].some(id => id.includes('-queue-')), false, 'full queues release only their transient rendezvous');
   assert.ok(host.peer && !host.peer.destroyed); assert.ok(guest.peer && !guest.peer.destroyed);
+});
+
+test('a completed game handshake survives queue acknowledgments delayed on the separate rendezvous channel', async t => {
+  const { add, sessions, events, network } = queueHarness(t);
+  network.faults.holdQueueAcks = true;
+  const first = add().queue('First', 'ice', 'standard-1v1');
+  const second = add().queue('Second', 'raven', 'standard-1v1');
+  await Promise.all([first, second]); await settleQueue();
+  assert.equal(network.delayedQueueAcks.length, 1, 'ACK is genuinely still delayed while game channels connect');
+  assert.equal(sessions.every(s => s.connected && !s._closed), true);
+  assert.equal(events.every(e => e.connected.length === 1 && e.disconnected.length === 0), true);
+  for (const deliver of network.delayedQueueAcks) deliver();
+  await settleQueue();
+  assert.equal(sessions.every(s => s.connected && !s._closed), true, 'late queue ACK cannot tear down the game');
+});
+
+test('all four 2v2 players stay connected when game welcomes overtake every queue ACK', async t => {
+  const { add, sessions, events, network } = queueHarness(t);
+  network.faults.holdQueueAcks = true;
+  await Promise.all(Array.from({ length: 4 }, (_, i) => add().queue(`Player${i}`, 'ice', 'standard-2v2')));
+  await settleQueue();
+  assert.equal(network.delayedQueueAcks.length, 3);
+  assert.equal(sessions.every(s => s.connected && !s._closed && s.players.length === 4), true);
+  assert.equal(events.every(e => e.connected.length === 1 && e.disconnected.length === 0), true);
+  assert.equal(events[0].status.at(-1).type, 'connected', 'late queue completion cannot replace connected with searching');
+  for (const deliver of network.delayedQueueAcks) deliver();
+  await settleQueue();
+  assert.equal(sessions.every(s => s.connected && !s._closed), true);
 });
 
 test('2v2 queue waits for four true humans and assigns all four controls without converting to a room form', async t => {

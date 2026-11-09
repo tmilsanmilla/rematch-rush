@@ -4,7 +4,7 @@ import {normaliseProgress,levelProgress,buyFlowSpin,equipFlow,chooseFlow,FLOW_SP
 import { MATCH_RULES, ONLINE_FORMATS, rulesFor } from './match-rules.js?v=2';
 import { Game, ACTION_COOLDOWNS } from './game.js?v=24';
 import { ROSTER, getSkills } from './characters.js?v=11';
-import { OnlineSession } from './online.js?v=15';
+import { OnlineSession } from './online.js?v=16';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];

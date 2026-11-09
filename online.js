@@ -278,7 +278,14 @@ class MatchmakingQueue {
     this.onAbort(error);
   }
 
-  finish() { this.completed = true; this.close(null); }
+  finish() {
+    this.completed = true;
+    // The game and queue are separate WebRTC channels. A valid game welcome
+    // can arrive before its queue ACK: finishing that successful handoff must
+    // resolve the assigned coordinator, not reject it as "Matchmaking ended".
+    if (this.assigned && !this.settled) this._resolve({ roomCode: this.roomCode, admissionToken: this.admissionToken });
+    this.close(null);
+  }
 
   close(error = new Error('Matchmaking was canceled.')) {
     if (this.closed) return;
@@ -379,7 +386,7 @@ export class OnlineSession {
       if (assignment.roomCode !== roomCode) {
         this._queueAdmissionToken = assignment.admissionToken;
         await this.join(assignment.roomCode, username, character, token);
-      } else this._status('queue', 'Match found. Connecting everyone…');
+      } else if (!this.connected) this._status('queue', 'Match found. Connecting everyone…');
       return this.roomCode;
     } catch (error) {
       if (!this._closed && this._queueToken === token) this._fail(peerError(error));
