@@ -123,6 +123,35 @@ test('valid signed identity returns only immutable binding authority and exact s
   assert.equal('roles' in identity, false);
 });
 
+test('Google upstream authentication preserves the same Pixel immutable returning identity', async () => {
+  // A synthetic Pixel-issued token models an upstream social login; this is
+  // neither a Google token nor evidence of a configured/live social provider.
+  const password = await harness({ claims: claims({ amr: ['pwd'] }) });
+  const social = await harness({ claims: claims({ amr: ['google'], provider: 'google',
+    google_sub: 'synthetic-google-id', roles: ['admin'] }) });
+  const previous = await password.exchange(), returned = await social.exchange();
+  assert.deepEqual(returned, previous);
+  assert.deepEqual(Object.keys(returned), ['issuer', 'subject', 'credentialVersion', 'identityExpiresAt']);
+  assert.equal('google_sub' in returned || 'roles' in returned || 'email' in returned, false);
+});
+
+test('same email with a different Google-backed Pixel subject never becomes the original owner', async () => {
+  const previous = await harness();
+  const other = await harness({ claims: claims({ sub: 'different-pixel-subject', amr: ['google'] }) });
+  const original = await previous.exchange(), returned = await other.exchange();
+  assert.notEqual(returned.subject, original.subject);
+  assert.equal(returned.issuer, original.issuer);
+  assert.equal('email' in returned, false);
+});
+
+test('direct Google ID tokens cannot replace the fixed Pixel issuer even with matching email', async () => {
+  for (const iss of ['https://accounts.google.com', 'accounts.google.com']) {
+    const f = await harness({ claims: claims({ iss, amr: ['google'] }) });
+    await assert.rejects(f.exchange(), { code: 'PIXEL_IDENTITY_REJECTED' });
+    assert.equal(f.calls.some(c => c.url.endsWith('/userinfo')), false);
+  }
+});
+
 test('malformed browser flow arguments fail before any provider request', async () => {
   const { client, calls } = await harness();
   for (const patch of [{ state: 'short' }, { nonce: 'bad nonce'.repeat(5) }, { codeChallenge: 'x'.repeat(42) }]) {
