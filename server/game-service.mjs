@@ -1,6 +1,7 @@
 import {createHash,randomInt,randomUUID} from 'node:crypto';
-import {normaliseProgress,settleProgress,buySpin,toggleVariant,stageLeaderboard,parseAdminCommand,banUntil,banMinutes,STYLE_IDS} from '../progression.js';
+import {normaliseProgress,settleProgress,buySpin,buyFlowSpin,equipFlow,chooseFlow,toggleVariant,stageLeaderboard,parseAdminCommand,banUntil,banMinutes,STYLE_IDS} from '../progression.js';
 import {selectedVariants} from '../progression.js';
+import {FLOW_IDS} from '../flow.js';
 import {ENGINE_VERSION} from '../match-audit.js';
 import {replayMatch} from './game-replay.mjs';
 import {rulesFor,MATCH_RULES} from '../match-rules.js';
@@ -28,12 +29,14 @@ export function createGameService(store,{choose=chooseSpin}={}){
   let result;
   if(action==='equip'){if(!profile.unlocked.includes(input.character))fail('Unlock this character first.');profile.equipped=input.character;await tx.saveProfile(actor,profile);result={profile};}
   else if(action==='variant'){if(typeof input.enabled!=='boolean')fail('Choose an enabled or disabled variant.');profile=toggleVariant(profile,input.character,input.slot,input.enabled);await tx.saveProfile(actor,profile);result={profile};}
+  else if(action==='flow-spin'){const purchase=buyFlowSpin(profile,input.type,type=>chooseFlow(type,()=>randomInt(1000000000)/1000000000));await tx.saveProfile(actor,purchase.progress);result={profile:purchase.progress,id:purchase.id,duplicate:purchase.duplicate,cost:purchase.cost};}
+  else if(action==='equip-flow'){profile=equipFlow(profile,input.flow);await tx.saveProfile(actor,profile);result={profile};}
   else if(action==='spin'){if(!['normal','lucky'].includes(input.type))fail('Choose a spin.');const purchase=buySpin(profile,input.type,()=>choose(input.type));await tx.saveProfile(actor,purchase.progress);result={profile:purchase.progress,id:purchase.id,duplicate:purchase.duplicate,cost:purchase.cost};}
   else if(action==='start'){
    if(input.engine!==ENGINE_VERSION)fail('Refresh Rematch Rush before starting another account match.',409);
    if(!uuid(input.matchId)||!Object.hasOwn(MATCH_RULES,input.format)||!profile.unlocked.includes(input.character))fail('Invalid match selection.');
    const rule=rulesFor(input.format,input.settings||{});if(!/^[a-f0-9]{32}$/.test(input.seed||'')||!Number.isInteger(input.localPlayerId)||!Array.isArray(input.players)||input.players.length<2||input.players.length>6)fail('A fixed match roster and seed are required.');
-   const players=input.players.map(p=>{if(!p||typeof p!=='object'||!Number.isInteger(p.id)||p.id<0||p.id>5||p.team!==p.id%2||!STYLE_IDS.includes(p.character)||typeof p.isBot!=='boolean')fail('Invalid match roster.');return {id:p.id,team:p.team,character:p.character,isBot:p.isBot,name:String(p.name||'Player').slice(0,24),dlsi:{moves:Array.from({length:4},(_,i)=>p.dlsi?.moves?.[i]===true),awakening:p.dlsi?.awakening===true}};});const local=players.find(p=>p.id===input.localPlayerId),variants=selectedVariants(profile,input.character);if(new Set(players.map(p=>p.id)).size!==players.length||[0,1].some(t=>players.filter(p=>p.team===t).length<1||players.filter(p=>p.team===t).length>3)||!local||local.isBot||local.character!==(['raw','penalties','penalty-practice'].includes(rule.variant)?'none':input.character)||JSON.stringify(local.dlsi)!==JSON.stringify({moves:Array.from({length:4},(_,i)=>variants.moves[i]===true),awakening:variants.awakening}))fail('Your match character or variants do not match your account.');
+   const players=input.players.map(p=>{if(!p||typeof p!=='object'||!Number.isInteger(p.id)||p.id<0||p.id>5||p.team!==p.id%2||!STYLE_IDS.includes(p.character)||typeof p.isBot!=='boolean'||p.flow!=null&&!FLOW_IDS.includes(p.flow))fail('Invalid match roster.');return {id:p.id,team:p.team,character:p.character,isBot:p.isBot,flow:typeof p.flow==='string'?p.flow:'none',name:String(p.name||'Player').slice(0,24),dlsi:{moves:Array.from({length:4},(_,i)=>p.dlsi?.moves?.[i]===true),awakening:p.dlsi?.awakening===true}};});const local=players.find(p=>p.id===input.localPlayerId),variants=selectedVariants(profile,input.character);if(local&&local.flow!==(['raw','penalties','penalty-practice'].includes(rule.variant)?'none':profile.flow))fail('Your Flow does not match your account.');if(new Set(players.map(p=>p.id)).size!==players.length||[0,1].some(t=>players.filter(p=>p.team===t).length<1||players.filter(p=>p.team===t).length>3)||!local||local.isBot||local.character!==(['raw','penalties','penalty-practice'].includes(rule.variant)?'none':input.character)||JSON.stringify(local.dlsi)!==JSON.stringify({moves:Array.from({length:4},(_,i)=>variants.moves[i]===true),awakening:variants.awakening}))fail('Your match character or variants do not match your account.');
    const auditPlan={engine:ENGINE_VERSION,format:input.format,seed:input.seed,players,localPlayerId:input.localPlayerId,settings:{duration:rule.duration,variant:rule.variant,scoreLimit:[3,5,10].includes(input.settings?.scoreLimit)?input.settings.scoreLimit:0}};await tx.saveProfile(actor,profile);await tx.abandonActive(actor);
    await tx.startMatch({id:input.matchId,actor,format:input.format,character:['raw','penalties','penalty-practice'].includes(rule.variant)?'none':input.character,settings:{duration:rule.duration,variant:rule.variant,auditPlan},startedAt:now,state:'active'});result={matchId:input.matchId};
   }else if(action==='finish'){
@@ -44,7 +47,7 @@ export function createGameService(store,{choose=chooseSpin}={}){
    const {team,stats,score}=replay;
    const league=await tx.leaderboard(),settled=settleProgress(profile,{matchId:match.id,character:match.character,team,score,stats,format:match.format,abandoned:outcome==='abandoned',opponentAbandoned:outcome==='opponent-left',leagueOpen:league.started===true&&!league.ended});
    await tx.finishMatch(match.id,outcome,hash,{score,team,stats});await tx.saveProfile(actor,settled.progress);
-   if(settled.points)await tx.points(actor,match.character,settled.points);result={profile:settled.progress,money:settled.money,points:settled.points};
+   if(settled.points)await tx.points(actor,match.character,settled.points);result={profile:settled.progress,money:settled.money,points:settled.points,xp:settled.xp};
   }else if(action==='appeal'){
    if(!banned)fail('There is no active ban to appeal.');const message=String(input.message||'').trim();if(!message||message.length>1000)fail('Enter an appeal of 1–1000 characters.');await tx.appeal({actor,banVersion:ban.version,message});result={ok:true};
   }else if(action==='admin'){

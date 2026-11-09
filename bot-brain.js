@@ -1,4 +1,4 @@
-import { ROSTER, getSkills } from './characters.js?v=9';
+import { ROSTER, getSkills } from './characters.js?v=11';
 
 const FIELD = { left: 70, right: 1130, top: 65, bottom: 635, goalTop: 260, goalBottom: 440 };
 const MID = { x: 600, y: 350 };
@@ -55,6 +55,8 @@ function canUse(c, slot) {
   const { p, own, mate, enemy, enemyCarrier, carrier, ahead, loose, airborne, distance, enemyDistance, goalDistance, recentShot, ownHalf, held, b, game } = c;
   const a = p.ability || {}, awake = p.awakened && p.awakeningLeft > 0, range = goalDistance <= 680;
   switch (p.character) {
+    case 'malicia':return slot===0?own&&!!mate:slot===1?!own||goalDistance>180:slot===2&&awake&&!!enemyCarrier;
+    case 'raven':return slot===0?own:slot===1?awake?airborne:!a.crowTheft:slot===2&&awake&&own&&range;
     case 'manmarker': return slot === 0 ? !own && !!enemyCarrier && enemyDistance < 240 : slot === 1 ? !!enemy && enemyDistance < 260 && !(a.markLeft > 0) : slot === 2 && awake && !own && !!enemyCarrier && enemyDistance < 295;
     case 'ice': return slot === 0 ? own && !!mate && game.distance(p, mate) <= game.width / 3 : slot === 1 ? own && !!ahead && game.distance(p, ahead) < 130 : slot === 2 && awake && own && !!mate;
     case 'powershooter': return slot === 0 ? awake ? loose && distance < 600 : own && range : slot === 1 ? !own && !!enemyCarrier && enemyDistance < 310 : slot === 2 && awake && own && range;
@@ -131,7 +133,8 @@ export function updateBotPlayer(game, p, dt) {
   const brain = game.botBrains[p.id] ||= { think: 0, skillThink: 0, decision: { keys: {} }, shot: null, skillCursor: p.id };
   const random = game.options?.botRandom || Math.random, send = input => game.setInput(p.id, input);
   brain.think -= dt; brain.skillThink -= dt;
-  if (!own) brain.shot = null;
+  if (!own) brain.shot = null;if(p.flow&&p.flow!=='none'&&p.flowMeter>=30&&!p.flowLeft){send({flow:true});}
+
   if (!['play', 'playing'].includes(s.phase) || p.stun > 0 || p.recovery > 0 || s.kickoff && s.kickoff.team !== p.team) { brain.shot = null; send({ keys: {}, shootHeld: false }); return; }
   if (!own && b.owner == null && !b.pass && b.lastKickTeam === p.team && b.lastKickAgo < .4) { send({ keys: {}, shootHeld: false }); return; }
   const awakening = ROSTER.find(character => character.id === p.character)?.awakening;

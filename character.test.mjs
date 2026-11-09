@@ -29,7 +29,7 @@ function awakenDirectly(player, onBall = true) {
 
 test('the expanded roster and Ninja awakening are represented', () => {
   assert.deepEqual(ROSTER.map(character => character.id), [
-    'none', 'manmarker', 'ice', 'powershooter', 'ninja', 'playmaker', 'falcon', 'streetdribbler', 'magician', 'supersonic', 'trapper', 'serpent', 'butterflydancer', 'emperor',
+    'none', 'manmarker', 'ice', 'powershooter', 'ninja', 'playmaker', 'falcon', 'streetdribbler', 'magician', 'supersonic', 'trapper', 'serpent', 'butterflydancer', 'emperor','malicia','raven',
   ]);
   assert.equal(ROSTER.find(character => character.id === 'ninja').awakening.duration, 45);
   assert.equal(getSkills('ninja')[1].cooldown, 15);

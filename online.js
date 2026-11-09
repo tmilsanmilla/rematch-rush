@@ -1,3 +1,4 @@
+import {FLOW_IDS} from './flow.js?v=1';
 import { MATCH_RULES, ONLINE_FORMATS, ROOM_ALPHABET, validRoomCode, normalizeRoomConfig, humanSlots, playerSlots, rulesFor } from './match-rules.js?v=2';
 export { normalizeRoomConfig } from './match-rules.js?v=2';
 import { selectBotCharacter, balanceBotCharacters } from './bot-brain.js?v=4';
@@ -8,7 +9,7 @@ import { selectBotCharacter, balanceBotCharacters } from './bot-brain.js?v=4';
  * https://peerjs.com/client/api/peer and https://peerjs.com/server/cloud
  * Direct connections can fail on restrictive networks without a TURN relay.
  */
-const PROTOCOL = 'rematch-rush-v6';
+const PROTOCOL = 'rematch-rush-v7';
 const PREFIX = `${PROTOCOL}-`;
 const ALPHABET = ROOM_ALPHABET;
 const CREATE_ATTEMPTS = 6;
@@ -47,8 +48,9 @@ function loadPeerLibrary() {
   return peerLibraryPromise;
 }
 
-function profile(username, character, dlsi) {
+function profile(username, character, dlsi, flow) {
   return {
+    flow:FLOW_IDS.includes(flow)?flow:'none',
     username: String(username || 'Player').trim().slice(0, 24) || 'Player',
     dlsi:{moves:Array.from({length:4},(_,i)=>dlsi?.moves?.[i]===true),awakening:dlsi?.awakening===true},
     character: String(character || 'none').replace(/[^a-z0-9_-]/gi, '').slice(0, 40) || 'none',
@@ -84,7 +86,7 @@ function normalizeInput(input) {
     action: !!input.action,
     pass: !!input.pass,
     skill: Number.isInteger(input.skill) && input.skill >= 0 && input.skill <= 9 ? input.skill : null,
-    awaken: !!input.awaken,
+    awaken: !!input.awaken,flow:!!input.flow,
     qte:typeof input.qte==='string'&&/^[a-z]$/.test(input.qte)?input.qte:null,
     skipReplay: !!input.skipReplay,
   };
@@ -462,11 +464,11 @@ export class OnlineSession {
     if (!keepQueue) this.entryMode = 'room';
     this.localPlayerId = role === 'host' ? 0 : null;
     this.localTeam = role === 'host' ? 0 : 1;
-    this.matchSeed=randomToken().slice(0,32);this.localProfile = profile(username, character,this.selectedVariants);
+    this.matchSeed=randomToken().slice(0,32);this.localProfile = profile(username, character,this.selectedVariants,this.selectedFlow);
     this.remoteProfile = null;
     this.roomCode = null;
     this.roundId = 1;
-    this.players = role === 'host' ? [{ id: 0, team: 0, name: this.localProfile.username, character: this.localProfile.character,dlsi:this.localProfile.dlsi, isBot: false }] : [];
+    this.players = role === 'host' ? [{ id: 0, team: 0, name: this.localProfile.username, character: this.localProfile.character,dlsi:this.localProfile.dlsi,flow:this.localProfile.flow, isBot: false }] : [];
     if (role === 'host' && gameFormat === 'bot-team') this.players.push(
       { id: 1, team: 1, name: 'CPU 1', character: selectBotCharacter(), isBot: true },
       { id: 3, team: 1, name: 'CPU 2', character: selectBotCharacter(), isBot: true },
@@ -600,10 +602,10 @@ export class OnlineSession {
       if (playerId === undefined) { this._rejectConnection(connection, 'This room is full.'); return; }
       record.playerId = playerId;
       record.stateAcks = data.stateAcks === true;
-      record.profile = profile(data.profile.username, data.profile.character,data.profile.dlsi);
+      record.profile = profile(data.profile.username, data.profile.character,data.profile.dlsi,data.profile.flow);
       clearTimeout(record.timer);
       this.peers.set(playerId, connection);
-      this.players.push({ id: playerId, team: playerId % 2, name: record.profile.username, character: record.profile.character,dlsi:record.profile.dlsi, isBot: false });
+      this.players.push({ id: playerId, team: playerId % 2, name: record.profile.username, character: record.profile.character,dlsi:record.profile.dlsi,flow:record.profile.flow, isBot: false });
       this.players.sort((a, b) => a.id - b.id);
       this.remoteProfile ||= record.profile;
       this._publishLobby();
@@ -714,8 +716,8 @@ export class OnlineSession {
     for (const raw of data.players) {
       if (!raw || !expectedIds.includes(raw.id) || ids.has(raw.id) || raw.team !== raw.id % 2 || !!raw.isBot !== !slots.includes(raw.id)) return false;
       ids.add(raw.id);
-      const clean = profile(raw.name, raw.character,raw.dlsi);
-      players.push({ id: raw.id, team: raw.team, name: clean.username, character: clean.character,dlsi:raw.isBot?null:clean.dlsi, isBot: !!raw.isBot });
+      const clean = profile(raw.name, raw.character,raw.dlsi,raw.flow);
+      players.push({ id: raw.id, team: raw.team, name: clean.username, character: clean.character,dlsi:raw.isBot?null:clean.dlsi,flow:raw.isBot?'none':clean.flow, isBot: !!raw.isBot });
     }
     if (!ids.has(0) || !ids.has(data.localPlayerId) || (data.ready === true && !expectedIds.every(id => ids.has(id)))) return false;
     // The assigned identity and room format cannot change in a later welcome.

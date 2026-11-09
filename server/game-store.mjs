@@ -1,6 +1,6 @@
 import {createRequire} from 'node:module';
 import {assertTargetConfig} from './pixel-target.mjs';
-import {normaliseProgress,stageLeaderboard,STYLE_IDS} from '../progression.js';
+import {normaliseProgress,splitGameMoney,joinGameMoney,stageLeaderboard,STYLE_IDS} from '../progression.js';
 const require=createRequire(import.meta.url),deny=()=>{throw Object.assign(new Error('Game storage is not ready.'),{status:503});};
 export const GAME_TABLES=Object.freeze(['schema_meta','profiles','matches','operations','league_stages','league_points','admins','bans','appeals','admin_audit']);
 const date=v=>new Date(v).getTime();
@@ -26,8 +26,8 @@ export function createGameStore(config,{history,PoolClass}={}){
   const live=async()=>{const row=(await c.query(`SELECT s.account_id,s.expires_at FROM rematch_pixel.sessions s JOIN rematch_pixel.bindings b ON b.issuer=s.issuer AND b.subject=s.subject AND b.account_id=s.account_id WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>clock_timestamp() AND s.signed_epoch=b.floor_epoch FOR SHARE OF s,b`,[tokenHash])).rows[0];if(!row)throw Object.assign(new Error('Your Rematch session ended. Sign in again to continue.'),{status:401});return row;};
   const actor=anonymous?null:(await live()).account_id;
   const tx={actor,now:async()=>date((await c.query('SELECT clock_timestamp() AS now')).rows[0].now),
-   profile:async id=>{let r=(await c.query('SELECT money,progress FROM rematch_game.profiles WHERE account_id=$1 FOR UPDATE',[id])).rows[0];if(!r)r={money:0,progress:{}};return {...r.progress,money:Number(r.money)};},
-   saveProfile:async(id,p)=>{const n=normaliseProgress(p),{money,...progress}=n;await c.query('INSERT INTO rematch_game.profiles(account_id,money,progress) VALUES($1,$2,$3::jsonb) ON CONFLICT(account_id) DO UPDATE SET money=EXCLUDED.money,progress=EXCLUDED.progress,updated_at=clock_timestamp()',[id,money,JSON.stringify(progress)]);},
+   profile:async id=>{let r=(await c.query('SELECT money,progress FROM rematch_game.profiles WHERE account_id=$1 FOR UPDATE',[id])).rows[0];if(!r)r={money:0,progress:{}};return {...r.progress,money:joinGameMoney(r.money,r.progress?._moneyCents)};},
+   saveProfile:async(id,p)=>{const n=normaliseProgress(p),{money,...progress}=n;const wallet=splitGameMoney(money);progress._moneyCents=wallet.cents;await c.query('INSERT INTO rematch_game.profiles(account_id,money,progress) VALUES($1,$2,$3::jsonb) ON CONFLICT(account_id) DO UPDATE SET money=EXCLUDED.money,progress=EXCLUDED.progress,updated_at=clock_timestamp()',[id,wallet.whole,JSON.stringify(progress)]);},
    operation:async id=>{const r=(await c.query('SELECT account_id AS actor,input_digest AS digest,result FROM rematch_game.operations WHERE id=$1',[id])).rows[0];return r;},
    saveOperation:async o=>{await c.query('INSERT INTO rematch_game.operations(id,account_id,kind,input_digest,result) VALUES($1,$2,$3,$4,$5::jsonb)',[o.id,o.actor,o.kind,o.digest,JSON.stringify(o.result)]);},
    abandonActive:async id=>{await c.query("UPDATE rematch_game.matches SET state='abandoned',finished_at=clock_timestamp() WHERE account_id=$1 AND state='active'",[id]);},

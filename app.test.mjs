@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { ROSTER, getSkills } from './characters.js';
+import {FLOW_ROSTER,flowOf,remainingMoveSeconds} from './flow.js';
 import { normalizeRoomConfig } from './online.js';
 import {MATCH_RULES,ONLINE_FORMATS,rulesFor} from './match-rules.js';
-import {normaliseProgress,settleProgress,buySpin,toggleVariant,selectedVariants,variantUnlocks,moveQuests,QUESTS,SPIN_PRICES} from './progression.js';
+import {normaliseProgress,levelProgress,buyFlowSpin,equipFlow,chooseFlow,FLOW_SPIN_PRICES,settleProgress,buySpin,toggleVariant,selectedVariants,variantUnlocks,moveQuests,QUESTS,SPIN_PRICES} from './progression.js';
 import {randomUUID} from 'node:crypto';
 import { ACTION_COOLDOWNS } from './game.js';
 
@@ -31,7 +32,7 @@ function appHarness(savedProfile={money:500}) {
     body: { classList: { toggle() {} }, style: {} },
   };
   const context = {
-    document, ROSTER, getSkills, ACTION_COOLDOWNS,MATCH_RULES,ONLINE_FORMATS,rulesFor,normaliseProgress,settleProgress,buySpin,toggleVariant,selectedVariants,variantUnlocks,moveQuests,QUESTS,SPIN_PRICES,crypto:{randomUUID},createGameAccount:()=>({current:null,pending:null,refresh:async()=>null,leaderboard:async()=>{throw Error('offline');}}),
+    document, FLOW_ROSTER,flowOf,remainingMoveSeconds,ROSTER, getSkills, ACTION_COOLDOWNS,MATCH_RULES,ONLINE_FORMATS,rulesFor,normaliseProgress,levelProgress,buyFlowSpin,equipFlow,chooseFlow,FLOW_SPIN_PRICES,settleProgress,buySpin,toggleVariant,selectedVariants,variantUnlocks,moveQuests,QUESTS,SPIN_PRICES,crypto:{randomUUID},createGameAccount:()=>({current:null,pending:null,refresh:async()=>null,leaderboard:async()=>{throw Error('offline');}}),
     OnlineSession: class {
       constructor(options) { this.options = options; this.role = 'host'; this.closed = false; this.starts = 0; sessions.push(this); }
       queue(...args) { this.queued = args; return new Promise((resolve, reject) => { this.resolveQueue = resolve; this.rejectQueue = reject; }); }
@@ -479,7 +480,7 @@ test('character cards are ordered Common through Master, with the starter still 
 
 
 test('normal and lucky spin tiers use the exact Arrival of the Best odds', () => {
-  const app = appHarness({money:500,unlocked:['none','manmarker','ice','ninja','falcon']});
+  const app = appHarness({money:500,xp:11900,unlocked:['none','manmarker','ice','ninja','falcon']});
   assert.equal(JSON.stringify(app.SPIN_ODDS.normal), JSON.stringify([['common',44],['rare',30],['epic',15],['legendary',8.4],['world class',2.2],['master',.4]]));
   assert.equal(JSON.stringify(app.SPIN_ODDS.lucky), JSON.stringify([['rare',33],['epic',45],['legendary',13],['world class',7],['master',2]]));
   for (const type of ['normal','lucky']) {
@@ -594,7 +595,7 @@ test('shoot and pass cards are absent while keyboard pass routing remains availa
 test('the UI and simulation import the same character revision and team pass calls the engine', () => {
   const appSource=readFileSync(new URL('./app.js',import.meta.url),'utf8');
   const gameSource=readFileSync(new URL('./game.js',import.meta.url),'utf8');
-  assert.equal(appSource.match(/characters\.js\?v=(\d+)/)[1],gameSource.match(/characters\.js\?v=(\d+)/)[1]);
+  assert.equal(appSource.match(/\.\/characters\.js\?v=(\d+)/)[1],gameSource.match(/\.\/characters\.js\?v=(\d+)/)[1]);
   const app=appHarness();let passes=0;app.setGame({usePass(){passes++;}});app.click('pass');assert.equal(passes,1);
 });
 
@@ -708,3 +709,4 @@ test('replay UI uses the engine permission so offline humans can skip bot goals'
  const match=state(); Object.assign(match,{phase:'replay',scorer:1,scorerTeam:1}); app.updateHUD(match);
  assert.equal(app.node('#skip-replay').hidden,false); allowed=false; app.updateHUD(match); assert.equal(app.node('#skip-replay').hidden,true);
 });
+test('Flow menu describes all20 real effects, exact prices and level15 lock without spending guest money',()=>{const app=appHarness({money:100});app.click('flows');const html=app.node('#modal-content').innerHTML;assert.match(html,/FIND YOUR FLOW/);assert.match(html,/\$26\.25/);assert.match(html,/\$71\.25/);assert.match(html,/level 15/);for(const f of FLOW_ROSTER)assert.ok(html.includes(f.name));assert.equal(app.node('#wallet-balance').textContent,'$100 · DEVICE');});

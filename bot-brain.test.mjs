@@ -46,8 +46,8 @@ for (const [character, slot, options] of cases) test(`bot contextual move ${char
 
 test('every roster character can be selected by a bounded uniform random slot', () => {
   assert.deepEqual(BOT_CHARACTER_IDS, ROSTER.map(p => p.id));
-  assert.equal(BOT_CHARACTER_IDS.length, 14);
-  for (let i = 0; i < 14; i++) assert.equal(selectBotCharacter(() => (i + .5) / 14), ROSTER[i].id);
+  assert.equal(BOT_CHARACTER_IDS.length, 16);
+  for (let i = 0; i < 16; i++) assert.equal(selectBotCharacter(() => (i + .5) / 16), ROSTER[i].id);
   for (const value of [-1, 0, 1, Infinity, NaN]) assert.ok(BOT_CHARACTER_IDS.includes(selectBotCharacter(() => value)));
 });
 

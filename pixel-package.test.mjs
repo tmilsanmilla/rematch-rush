@@ -23,7 +23,7 @@ test('static build contains all current gameplay and account assets, byte-identi
   const outputDirectory = join(scratch, 'dist');
   await buildStaticSite({ outputDirectory });
   assert.deepEqual(await filesUnder(outputDirectory), [...PUBLIC_ASSETS].sort());
-  const expected = ['index.html','style.css','app.js','game.js','characters.js','online.js','pixel-account.js','vendor/peerjs.min.js','match-rules.js','penalties.js','progression.js','dlsi.js','game-account.js','match-audit.js'];
+  const expected = ['index.html','style.css','app.js','game.js','characters.js','online.js','pixel-account.js','vendor/peerjs.min.js','match-rules.js','penalties.js','progression.js','dlsi.js','game-account.js','match-audit.js','flow.js','flow-characters.js'];
   if ((await readFile(join(root, 'game.js'), 'utf8')).includes('bot-brain.js')) expected.push('bot-brain.js');
   assert.deepEqual([...PUBLIC_ASSETS].sort(), expected.sort());
   for (const file of PUBLIC_ASSETS) assert.deepEqual(await readFile(join(outputDirectory, file)), await readFile(join(root, file)));

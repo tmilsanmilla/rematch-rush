@@ -1,4 +1,6 @@
-import {dlsiSkills,activateDlsi,awakenDlsi,tickDlsi} from './dlsi.js?v=2';
+import {FLOW_CHARACTERS,expansionSkills,expansionSkill,expansionAwakened,tickExpansion} from './flow-characters.js?v=1';
+import {flowPass} from './flow.js?v=1';
+import {dlsiSkills,activateDlsi,awakenDlsi,tickDlsi} from './dlsi.js?v=3';
 const S = (name, cooldown, description, extra = {}) => ({ name, cooldown, description, ...extra });
 const YELLOW = '#ffe45e';
 const ORANGE = '#ff923d';
@@ -150,6 +152,7 @@ export const ROSTER = [
     ],
     awakening: { name: 'BOW BEFORE ME!', duration: 75, requires: 'on-ball', description: 'Gain blue aura and roses. Replace all four moves, move the chemical reaction to slot 5, and refresh its cooldown for 75s.', quotes: ['Hey, there, everyone', 'BOW BEFORE ME!'] },
   },
+...FLOW_CHARACTERS,
 ].map(character => ({ ...character, skills: character.skills.map((skill, index) => ({ ...skill, key: String(index + 1), slot: index })) }));
 
 const byId = Object.fromEntries(ROSTER.map(character => [character.id, character]));
@@ -160,6 +163,7 @@ export function getSkills(character, awakened = false, hasBall = false) {
   const id = idOf(character);
   const state = typeof character === 'object' ? character.ability || {} : {};
   let skills = (byId[id] || byId.none).skills.map(skill => ({ ...skill }));
+  skills=expansionSkills(typeof character==='object'?character:{character:id},awakened,hasBall,skills);
   if (id === 'ice' && awakened) skills.push(S('ICE cold', 20, 'On-ball, cursor on a teammate: a cutscene into a perfect curved assist.'));
   if (id === 'ninja') {
     if (awakened) skills[0] = S('Stealthy steps', 27, 'Off-ball: invisible to opponents for 10s, with +25% speed. Touching the ball reveals you.');
@@ -316,9 +320,11 @@ const perfectPass = (g, from, to, { instant = false, curve = .6, color = colorOf
   const origin = { x: from.x, y: from.y };
   trace(g, from, to, 8); aura(from, color, 1); aura(to, color, 1);
   if (instant) { if (g.setOwner(to) === false) return false; g.recordKickCharge?.(from); effect(g, 'touch', to, color); return true; }
-  const duration = clamp(dist(g, from, to) / 1800, .25, .8), b = g.state.ball;
+  const mods=flowPass(g,from);color=mods.passColor||color;interceptable=mods.absoluteProtected?false:mods.contactProtected?false:interceptable;
+  const duration = clamp(dist(g, from, to) / 1800, .25, .8)/(mods.passSpeed||1), b = g.state.ball;
   Object.assign(b, { owner: null, x: origin.x, y: origin.y, vx: 0, vy: 0, vz: 0, z: 12, curve: 0, color, power: 55, lastTouch: from.id, lastKickTeam: from.team, lastKickAgo: 0, finish: null, pickupDelay: duration + .1, passTarget: to.id });
   b.perfectPass = { interceptable,fromId: from.id, targetId: to.id, origin, left: duration, duration, curve, color, onReceive, aim: aim ? { ...aim } : null };
+  g.applyFlowPass?.(from,to,{alreadyPaced:true});
   g.recordKickCharge?.(from);
   return true;
 };
@@ -341,6 +347,7 @@ export function activateSkill(g, p, slot) {
   const followup = (slot === 1 && ((!awakened && id === 'butterflydancer' && a.butterflyFollowup > 0) || (!awakened && id === 'emperor' && a.emperorFollowup > 0) || (id === 'streetdribbler' && a.rouletteFollowup > 0) || (id === 'supersonic' && !awakened && a.pinpointFollowup > 0) || (id === 'ninja' && a.precisionFollowup > 0) || (id === 'trapper' && !awakened && a.heelFollowup > 0))) || (id === 'magician' && !awakened && slot === 0 && a.placementFollowup > 0);
   if ((p.cooldowns[slot] || 0) > 0 && !followup) return notify(g, `${skills[slot].name} is cooling down.`);
 
+  const expansion=expansionSkill(g,p,slot);if(expansion!==null)return expansion;
   if (id === 'serpent') return serpentSkill(g, p, slot, awakened);
   if (id === 'butterflydancer') return butterflySkill(g, p, slot, awakened);
   if (id === 'emperor') return emperorSkill(g, p, slot, awakened);
@@ -819,7 +826,7 @@ export function activateAwakening(g, p) {
   const quotes = definition.id === 'supersonic' ? [definition.awakening.quotes[hasBall ? 1 : 0]] : definition.awakening.quotes;
   cinematic(g, quotes.length > 1 ? 3.4 : 2.8, quotes, p, () => {
     if (!p.awakened) return;
-    aura(p, definition.color, p.awakeningLeft);
+    aura(p, definition.color, p.awakeningLeft);expansionAwakened(g,p);
     if (definition.id === 'butterflydancer') wingAura(p, p.awakeningLeft);
     if (definition.id === 'emperor') roses(g, p, 12);
     effect(g, 'awakening', p, definition.color, 1.4);
@@ -993,6 +1000,7 @@ export function tickAbilities(g, p, dt) {
       drive.stage = 3;
     } else if (drive.stage === 3 && !mate.motion && g.hasBall(p)) { pass(g, p, mate, { air: true, curve: .8, power: 60 }); a.drive = null; g.notify('Rabona!'); }
   }
+  tickExpansion(g,p,dt);
   tickArrivalAbilities(g, p, dt);
   tickDlsi(g,p,dt);
 }

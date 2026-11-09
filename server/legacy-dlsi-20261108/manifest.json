@@ -1,0 +1,13 @@
+{
+  "source": "2c40a516fed98918743590bd15d2b03ed244fc82",
+  "engine": "dlsi-stage1-charge36-20261108",
+  "files": {
+    "game.js": "3397c44da15d02d11980887b76c85ac785fd543104439754eab679f8fdfd71d3",
+    "characters.js": "22f873d03f434afeb356f30641d0c086c69c784dca80b86c42c18f010b7bf3bf",
+    "bot-brain.js": "2f42b77378119b2b25d44868abbc21ed0394bd47998fbbe6a46500a912dd604b",
+    "dlsi.js": "500a186df26a8afd9d7687cce5862ec8e5a1b2b9e54d9009f373b1c0bd500b9f",
+    "penalties.js": "541d4c91c0d2761a27989c541f59c11977ae34d6a4572e20483ac34b8ab6bc11",
+    "match-rules.js": "1051e3d6ac6f309cab674a71e9413fee7c29a8a07a65885322e9f136a0045848",
+    "match-audit.js": "fdde64320b46e8cc2ec5ebdc76314b200a2c8286fa771e71b24310efe5909ffe"
+  }
+}

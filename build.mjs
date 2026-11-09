@@ -2,7 +2,7 @@ import {mkdir,copyFile,rm} from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const PUBLIC_ASSETS = Object.freeze(["index.html","style.css","app.js","game.js","characters.js","online.js","bot-brain.js","vendor/peerjs.min.js","pixel-account.js","match-rules.js","penalties.js","progression.js","dlsi.js","game-account.js","match-audit.js"]);
+export const PUBLIC_ASSETS = Object.freeze(["index.html","style.css","app.js","game.js","characters.js","online.js","bot-brain.js","vendor/peerjs.min.js","pixel-account.js","match-rules.js","penalties.js","progression.js","dlsi.js","game-account.js","match-audit.js","flow.js","flow-characters.js"]);
 const project = dirname(fileURLToPath(import.meta.url));
 
 export async function buildStaticSite({ sourceDirectory = project, outputDirectory = join(project, 'dist') } = {}) {
