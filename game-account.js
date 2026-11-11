@@ -1,4 +1,4 @@
-import {normaliseProgress,settleProgress,buySpin,toggleVariant} from './progression.js?v=4';
+import {normaliseProgress,settleProgress,buySpin,toggleVariant} from './progression.js?v=5';
 /** Account data never enters the guest save. Unknown writes retain their exact
  * idempotency key, including across sign-in redirects in this browser tab. */
 export function createGameAccount({fetchImpl=globalThis.fetch,storage=globalThis.localStorage,pendingStorage=globalThis.sessionStorage,onChange=()=>{},location=globalThis.location}={}){

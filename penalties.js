@@ -1,4 +1,5 @@
 import {SHOT_CHARGE} from './match-rules.js?v=2';
+import {MATCH_XP,addExperience} from './flow.js?v=2';
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const random=g=>g.options.botRandom||Math.random;
 export function initPenalties(g){
@@ -17,7 +18,7 @@ function prepareAttempt(g){
 }
 export function resolvePenalty(g,scored){
  const s=g.state,p=s.penalty;if(!p||p.phase!=='shot')return false;
- p.phase='result';p.left=1.25;p.attempts[p.turnTeam]++;if(scored){g.creditOnTarget(1-p.turnTeam,true);p.scores[p.turnTeam]++;const shooter=s.players.find(q=>q.id===p.shooterId);shooter.stats.goals++;g.options.onEvent?.({type:'goal',team:p.turnTeam,playerId:shooter.id,penalty:true});}
+ p.phase='result';p.left=1.25;p.attempts[p.turnTeam]++;if(scored){g.creditOnTarget(1-p.turnTeam,true);p.scores[p.turnTeam]++;const shooter=s.players.find(q=>q.id===p.shooterId);shooter.stats.goals++;addExperience(shooter,MATCH_XP.goal);g.options.onEvent?.({type:'goal',team:p.turnTeam,playerId:shooter.id,penalty:true});}
  s.score=[...p.scores];s.message=scored?'PENALTY SCORED':'PENALTY SAVED / MISSED';Object.assign(s.ball,{vx:0,vy:0,vz:0,z:0,owner:null,finish:null});return true;
 }
 function nextAttempt(g){const p=g.state.penalty;if(p.practice){if(p.attempts[p.turnTeam]>=p.max){g.state.practiceResult=true;g.endMatch();return;}}else{if(p.attempts[0]>=p.max&&p.attempts[1]>=p.max){if(p.scores[0]===p.scores[1]){startTiebreak(g);return;}g.state.winnerTeam=p.scores[0]>p.scores[1]?0:1;g.endMatch();return;}if(p.attempts[p.turnTeam]>=p.max)p.turnTeam=1-p.turnTeam;}prepareAttempt(g);}

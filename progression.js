@@ -1,4 +1,4 @@
-import {FLOW_ROSTER,FLOW_IDS} from './flow.js?v=1';
+import {FLOW_ROSTER,FLOW_IDS,MATCH_XP} from './flow.js?v=2';
 // Currency is earned only when a match settles; never on an abandoned local run.
 export const SPIN_PRICES=Object.freeze({normal:35,lucky:95});
 export const FLOW_SPIN_PRICES=Object.freeze({normal:26.25,lucky:71.25});
@@ -33,7 +33,7 @@ export function toggleVariant(progress,character,slot,value){const next=normalis
 export function settleProgress(progress,{matchId,character,team=0,score,stats={},isBot=false,format='',abandoned=false,opponentAbandoned=false,leagueOpen=true}){
  const next=normaliseProgress(progress);if(typeof matchId!=='string'||!matchId||next.settled.includes(matchId)||abandoned)return {progress:next,money:0,points:0,xp:0,duplicate:next.settled.includes(matchId)};
  const practice=format==='bot-penalty',penalty=practice||format==='penalties-1v1';
- const xp=isBot?0:Math.floor(Math.max(0,Math.min(7200,Number(stats.xp)||0))+1e-6);next.xp=Math.min(1000000000,next.xp+xp);
+ const xp=isBot?0:Math.floor(Math.max(0,Math.min(MATCH_XP.max,Number(stats.xp)||0))+1e-6);next.xp=Math.min(1000000000,next.xp+xp);
  const money=matchReward({team,score,stats,opponentAbandoned,practice}),points=isBot||penalty||character==='none'||!leagueOpen?0:leagueScore(stats,!opponentAbandoned);
  next.money=Math.min(100000000,next.money+money);next.settled.push(matchId);next.settled=next.settled.slice(-256);
  if(!isBot&&character!=='none'&&!penalty){

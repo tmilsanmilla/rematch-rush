@@ -3,3 +3,16 @@ test('all published legacy simulation modules retain their exact source pins and
 test('published DLSI matches replay with their original engine after the new route and QTE changes',()=>{const seed='cd'.repeat(16),g=new LegacyGame(null,{mode:'online',gameFormat:'standard-1v1',character:'streetdribbler',dlsi:{moves:[true,true,true],awakening:true},seed,recordAudit:true}),plan={engine:LEGACY_ENGINE_VERSION,format:'standard-1v1',seed,settings:{duration:300},players:g.state.players.map(({id,team,character,name,isBot,dlsi})=>({id,team,character,name,isBot,dlsi})),localPlayerId:0};for(let i=0;i<300;i++){if(i%40===0)g.setInput(0,{keys:{d:true},skill:3});g.update(1/30);}const r=replayMatch(plan,g.audit,{wallSeconds:10,outcome:'opponent-left'});assert.deepEqual(r.stats,g.localPlayer().stats);assert.deepEqual(r.score,g.state.score);});
 
 test('the just-published charge36/DLSI engine stays byte-pinned for its existing account records',async()=>{const m=JSON.parse(await readFile(new URL('./server/legacy-dlsi-20261108/manifest.json',import.meta.url)));assert.equal(m.source,'2c40a516fed98918743590bd15d2b03ed244fc82');for(const[f,hash]of Object.entries(m.files))assert.equal(createHash('sha256').update(await readFile(new URL('./server/legacy-dlsi-20261108/'+f,import.meta.url))).digest('hex'),hash);const {Game}=await import('./server/legacy-dlsi-20261108/game.js');const seed='cd'.repeat(16),g=new Game(null,{mode:'online',gameFormat:'standard-1v1',seed,recordAudit:true}),plan={engine:m.engine,format:'standard-1v1',seed,settings:{duration:300},players:g.state.players.map(({id,team,character,name,isBot,dlsi})=>({id,team,character,name,isBot,dlsi})),localPlayerId:0};for(let i=0;i<300;i++)g.update(1/30);assert.deepEqual(replayMatch(plan,g.audit,{wallSeconds:10,outcome:'opponent-left'}).stats,g.localPlayer().stats);});
+
+test('published possession-XP recordings retain their exact original simulation, XP and source pins',async()=>{
+ const m=JSON.parse(await readFile(new URL('./server/legacy-flow-20261109/manifest.json',import.meta.url)));
+ assert.equal(m.source,'b4c4b037d8311027ef42048cfd3ed1d6d2268632');
+ for(const[f,hash]of Object.entries(m.files))assert.equal(createHash('sha256').update(await readFile(new URL('./server/legacy-flow-20261109/'+f,import.meta.url))).digest('hex'),hash);
+ const {Game}=await import('./server/legacy-flow-20261109/game.js'),{tickExperience}=await import('./server/legacy-flow-20261109/flow.js');
+ const seed='cd'.repeat(16),g=new Game(null,{mode:'online',gameFormat:'standard-1v1',seed,recordAudit:true}),plan={engine:m.engine,format:'standard-1v1',seed,settings:{duration:300},players:g.state.players.map(({id,team,character,name,isBot,dlsi,flow})=>({id,team,character,name,isBot,dlsi,flow})),localPlayerId:0};
+ for(let i=0;i<300;i++){if(i%60===0)g.setInput(0,{keys:{d:true},aim:{x:1130,y:350}});g.update(1/30);}
+ assert.deepEqual(replayMatch(plan,g.audit,{wallSeconds:10,outcome:'opponent-left'}).stats,g.localPlayer().stats);
+ g.state.ball.owner=0;g.localPlayer().stats.xp=0;tickExperience(g,1);assert.equal(g.localPlayer().stats.xp,2);
+ g.state.ball.owner=1;tickExperience(g,1);assert.equal(g.localPlayer().stats.xp,2);
+ const {PUBLIC_ASSETS}=await import('./build.mjs');assert.ok(PUBLIC_ASSETS.every(p=>!p.includes('legacy')));
+});

@@ -1,0 +1,16 @@
+{
+  "source": "b4c4b037d8311027ef42048cfd3ed1d6d2268632",
+  "engine": "flow-xp-20261109",
+  "reason": "Original published input replay and possession-XP rules for existing account match receipts. Never shipped as browser assets.",
+  "files": {
+    "game.js": "e6c399d446c14b043eb090a48d9680bcea832f9a7173ae390f1ab9580d9c4018",
+    "characters.js": "789358f9bd1bb42c486f2931a6ebd508aaf5633f7761794d22b4deb836e6fe63",
+    "dlsi.js": "514b33791f628f2aa3f4a760bffd6b6033c5ce4ae55acde3fac20790e5afd88b",
+    "bot-brain.js": "3ccc4d2c770ead4a6525d91adb743bef4f5f01b45958692e6c68ab3bf109e8d3",
+    "match-rules.js": "1051e3d6ac6f309cab674a71e9413fee7c29a8a07a65885322e9f136a0045848",
+    "penalties.js": "541d4c91c0d2761a27989c541f59c11977ae34d6a4572e20483ac34b8ab6bc11",
+    "flow.js": "6a3c301d45ffde640eafb89c453012a06ed9ff9c6fa900bdf72dccbd4a21b4c8",
+    "flow-characters.js": "ce8ffc915c3f5d1e1e4ee1c4cbd97d13e428a594740bec8104f3ab6f77f8e885",
+    "match-audit.js": "49253af82c62ba3004404ec2a4d301eba481bc75de28d97ba9f0019c5223bc73"
+  }
+}
