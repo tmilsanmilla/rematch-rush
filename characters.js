@@ -1,6 +1,7 @@
-import {FLOW_CHARACTERS,expansionSkills,expansionSkill,expansionAwakened,tickExpansion} from './flow-characters.js?v=1';
+import {awakeningScene} from './awakening-scenes.js?v=1';
+import {FLOW_CHARACTERS,expansionSkills,expansionSkill,expansionAwakened,tickExpansion} from './flow-characters.js?v=2';
 import {flowPass} from './flow.js?v=1';
-import {dlsiSkills,activateDlsi,awakenDlsi,tickDlsi} from './dlsi.js?v=3';
+import {dlsiSkills,activateDlsi,awakenDlsi,tickDlsi} from './dlsi.js?v=4';
 const S = (name, cooldown, description, extra = {}) => ({ name, cooldown, description, ...extra });
 const YELLOW = '#ffe45e';
 const ORANGE = '#ff923d';
@@ -302,7 +303,7 @@ const towardGoal = (g, p, power, options = {}) => {
 const pass = (g, from, to, { air = false, curve = .6, power = 60 } = {}) => perfectPass(g,from,to,{curve,color:colorOf(from),interceptable:true});
 
 const later = (g, seconds, callback) => g.schedule(seconds, callback);
-const cinematic = (g, duration, lines, p, callback, choreography = null) => g.cutscene(duration, lines, colorOf(p), callback, choreography ? { ...choreography, actorId: p.id, aim: choreography.aim || { ...p.aim } } : null);
+const cinematic = (g, duration, lines, p, callback, choreography = null) => g.cutscene(duration, lines, colorOf(p), callback, {kind:'awakening-pose',...choreography,actorId:p.id,aim:choreography?.aim||{...p.aim},presentation:g.activeAwakeningScene||awakeningScene(p,{title:Array.isArray(lines)?lines.join(' / '):String(lines),kind:choreography?.kind})});
 const takeLoose = (g, p) => { if (g.state.ball.owner == null && !protectedBall(g)) { g.setOwner(p); return true; } return false; };
 const trace = (g, p, target, count = 7) => {
   for (let i = 0; i < count; i++) g.effect?.('afterimage', p.x + (target.x - p.x) * i / count, p.y + (target.y - p.y) * i / count, colorOf(p), .9);
@@ -336,7 +337,14 @@ const guaranteedFinish = (g, p, options = {}) => {
   return true;
 };
 
-export function activateSkill(g, p, slot) {
+export function activateSkill(g,p,slot){
+ if(!currentAwakening(p)||!Number.isInteger(slot)||slot<0||slot>5)return activateSkillCore(g,p,slot);
+ const move=getSkills(p,true,g.hasBall(p))[slot];if(!move)return false;
+ const presentation={...awakeningScene(p,{title:move.name,slot}),actorId:p.id},previous=g.activeAwakeningScene;
+ g.activeAwakeningScene=presentation;
+ try{const used=activateSkillCore(g,p,slot);if(used===true&&g.state.phase==='play')p.awakeningFx={...presentation,left:1.2,duration:1.2};return used;}finally{g.activeAwakeningScene=previous;}
+}
+function activateSkillCore(g, p, slot) {
   if (!Number.isInteger(slot) || slot < 0 || slot > 5) return false;
   if (g.state.phase !== 'playing' && g.state.phase !== 'play') return false;
   if ((p.stun || 0) > 0 || (p.recovery || 0) > 0 && !(slot===1&&p.ability?.dlLefty>0)) return notify(g, 'Recover before using a move.');
@@ -834,7 +842,7 @@ export function activateAwakening(g, p) {
       const b = g.state.ball, enemy = enemyCarrier(g, p); trace(g, p, b, 14); place(g, p, b.x, b.y);
       if (enemy) { enemy.stun = Math.max(enemy.stun || 0, 3); g.setOwner(p); } else if (b.owner == null) g.setOwner(p);
     }
-  }); return true;
+  },{kind:'awakening-pose',presentation:awakeningScene(p,{title:definition.awakening.name,intro:true})}); return true;
 }
 
 export function tickAbilities(g, p, dt) {

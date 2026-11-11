@@ -3,7 +3,7 @@
 export const LEGACY_ENGINE_VERSION='dlsi-stage1-20261107';
 export const PREVIOUS_ENGINE_VERSION='dlsi-stage1-charge36-20261108';
 export const POSSESSION_ENGINE_VERSION='flow-xp-20261109';
-export const ENGINE_VERSION='match-xp-20261111';
+export const ENGINE_VERSION='awakening-variety-20261111';
 export function seededRandom(seed){let state=0;for(let i=0;i<32;i+=8)state^=parseInt(seed.slice(i,i+8),16);state>>>=0;state||=0x9e3779b9;return()=>{state^=state<<13;state^=state>>>17;state^=state<<5;return(state>>>0)/4294967296;};}
 export function cleanMatchInput(value){if(!value||typeof value!=='object')throw Error('Invalid recorded input.');const input={};if(value.keys){input.keys={};for(const k of ['w','a','s','d'])input.keys[k]=value.keys[k]===true;}
  if(value.aim){if(!Number.isFinite(value.aim.x)||!Number.isFinite(value.aim.y)||Math.abs(value.aim.x)>100000||Math.abs(value.aim.y)>100000)throw Error('Invalid recorded aim.');input.aim={x:value.aim.x,y:value.aim.y};}

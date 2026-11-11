@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { composeGameplayAuth } from './ops/compose-gameplay-auth.mjs';
 const names=['index.html','style.css','app.js','build.mjs','package.json','vercel.json'];
-const receiver=Object.fromEntries(names.map(p=>[p,readFileSync(new URL(p,import.meta.url),'utf8')]));
+const receiver=Object.fromEntries(names.map(p=>[p,readFileSync(new URL('./test/fixtures/legacy-pixel-receiver/'+p,import.meta.url),'utf8')]));
 const input=()=>({
   'index.html':'<header>new tabs</header><main>BOT 1v1 new cards</main><link href="./style.css?v=15"><script src="./app.js?v=21"></script></body>',
   'style.css':'.new-game-ui{opacity:.4}', 'app.js':'/* new gameplay entry with unchanged guest storage */',
@@ -29,3 +29,5 @@ for(const [label,change] of [
   ['unknown new dependency',g=>{const p=JSON.parse(g['package.json']);p.dependencies={'new-game-dependency':'1.0.0'};g['package.json']=JSON.stringify(p);}],
   ['unknown routing',g=>{const c=JSON.parse(g['vercel.json']);c.rewrites=[];g['vercel.json']=JSON.stringify(c);}],
 ])test('auth composition refuses '+label+' rather than overwriting newer source',()=>{const gameplay=input();change(gameplay);assert.throws(()=>composeGameplayAuth({gameplay,receiver}));});
+
+test('legacy Pixel composition refuses a site that has selected Rematch-native accounts',()=>{const gameplay=input();gameplay['index.html']+='<section id="rematch-account"></section>';assert.throws(()=>composeGameplayAuth({gameplay,receiver}),/native accounts/);});

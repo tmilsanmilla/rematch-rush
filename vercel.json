@@ -10,7 +10,11 @@
       "excludeFiles": "{*.test.mjs,test/**,docs/**}"
     },
     "api/game/**/*.js": {
-      "includeFiles": "{server/**,progression.js,match-rules.js,match-audit.js,game.js,characters.js,dlsi.js,flow.js,flow-characters.js,penalties.js,bot-brain.js}",
+      "includeFiles": "{server/**,progression.js,match-rules.js,match-audit.js,game.js,characters.js,dlsi.js,flow.js,flow-characters.js,penalties.js,bot-brain.js,awakening-scenes.js}",
+      "excludeFiles": "{*.test.mjs,test/**,docs/**}"
+    },
+    "api/account/**/*.js": {
+      "includeFiles": "server/**",
       "excludeFiles": "{*.test.mjs,test/**,docs/**}"
     }
   }

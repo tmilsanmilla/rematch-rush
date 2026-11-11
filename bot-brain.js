@@ -1,4 +1,4 @@
-import { ROSTER, getSkills } from './characters.js?v=11';
+import { ROSTER, getSkills } from './characters.js?v=12';
 
 const FIELD = { left: 70, right: 1130, top: 65, bottom: 635, goalTop: 260, goalBottom: 440 };
 const MID = { x: 600, y: 350 };

@@ -1,3 +1,4 @@
+import {awakeningScene} from './awakening-scenes.js?v=1';
 // Optional, individually unlocked variants. The ordinary character implementation
 // remains the fallback for every unselected move and awakening.
 const C={manmarker:'#ffe45e',powershooter:'#ff923d',playmaker:'#5eabff',streetdribbler:'#c17aff',supersonic:'#ff4165'};
@@ -18,7 +19,7 @@ const fx=(g,p,sound='dlsi-shot')=>{flash(g,p);g.options?.onEvent?.({type:sound,p
 const move=(g,p,dx,dy,length,time=.4,opts={})=>{flash(g,p,time+.5);g.dash(p,dx,dy,length,time,{color:C[p.character],...opts});};
 const place=(g,p,x,y)=>{p.x=cap(x,84,g.width-84);p.y=cap(y,79,g.height-79);};
 const later=(g,t,fn)=>g.schedule(t,fn);
-const cut=(g,p,seconds,lines,fn,kind='volley')=>g.cutscene(seconds,lines,C[p.character],fn,{kind,actorId:p.id,aim:{...p.aim}});
+const cut=(g,p,seconds,lines,fn,kind='awakening-pose')=>g.cutscene(seconds,lines,C[p.character],fn,{kind,actorId:p.id,aim:{...p.aim},presentation:g.activeAwakeningScene||awakeningScene(p,{title:lines.join(' / '),kind,intro:kind.startsWith('awake:')})});
 const once=(g,p,key)=>{if(a(p)[key])return require(g,false,'Already used during this awakening.');a(p)[key]=true;return true;};
 const shot=(g,p,power,opts={})=>{fx(g,p);return g.kick(p,power,{accuracy:1,color:C[p.character],...opts});};
 function acquire(g,p){const b=g.state.ball;if(b.scriptedGoal||b.magnusFlight||b.unstoppableAir)return false;if(b.perfectPass&&b.perfectPass.targetId!==p.id&&!b.perfectPass.interceptable)return false;return g.setOwner(p)!==false;}

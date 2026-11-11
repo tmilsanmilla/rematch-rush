@@ -233,7 +233,7 @@ test('account readiness, sign-out and re-entry never access or upload device-loc
 });
 
 test('the account markup hides separate-profile confirmation by default and has no native password or guest adoption controls', () => {
-  const html = readFileSync(new URL('./index.html', import.meta.url), 'utf8');
+  const html = readFileSync(new URL('./test/fixtures/legacy-pixel-index.html', import.meta.url), 'utf8');
   const account = html.match(/<section class="pixel-account"[\s\S]*?<\/section>/)?.[0];
   assert.ok(account);
   assert.match(account, /id="pixel-account" hidden/);

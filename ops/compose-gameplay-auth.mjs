@@ -4,6 +4,7 @@
 const need = (condition, message) => { if (!condition) throw new Error(message); };
 const once = (source, needle) => source.split(needle).length === 2;
 export function composeGameplayAuth({ gameplay, receiver }) {
+  need(!gameplay['index.html']?.includes('id="rematch-account"'),'Rematch native accounts already selected; legacy Pixel composition refused');
   for (const name of ['index.html', 'style.css', 'app.js', 'build.mjs', 'package.json', 'vercel.json']) {
     need(typeof gameplay?.[name] === 'string', `Missing gameplay source: ${name}`);
     need(typeof receiver?.[name] === 'string', `Missing receiver source: ${name}`);

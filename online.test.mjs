@@ -16,7 +16,7 @@ class Emitter {
 
 function peerNetwork() {
   const peers = new Map(), instances = [], connections = [], messages = [];
-  const delivery = { synchronous: false }, faults = { collisions: 0, holdQueueAcks: false };
+  const delivery = { synchronous: false }, faults = { collisions: 0, holdQueueAcks: false, holdQueueOpen: false, holdQueueJoins: false };
   const delayedQueueAcks = [];
   let generatedId = 0;
   class Connection extends Emitter {
@@ -30,6 +30,7 @@ function peerNetwork() {
       messages.push({ connection: this, message: copy });
       const deliver = () => { if (this.other.open) this.other.emit('data', copy); };
       if (faults.holdQueueAcks && copy.type === 'ack' && copy.protocol?.endsWith('-queue')) { delayedQueueAcks.push(deliver); return; }
+      if (faults.holdQueueJoins && copy.type === 'join' && copy.protocol?.endsWith('-queue')) return;
       if (delivery.synchronous) deliver(); else queueMicrotask(deliver);
     }
     close() {
@@ -61,6 +62,7 @@ function peerNetwork() {
       this.connections.push(outgoing); host.connections.push(incoming);
       queueMicrotask(() => {
         host.emit('connection', incoming);
+        if(faults.holdQueueOpen && options.metadata?.protocol?.endsWith('-queue'))return;
         outgoing.open = incoming.open = true;
         incoming.emit('open'); outgoing.emit('open');
       });
@@ -940,3 +942,13 @@ test('reliably delivered coordinator cancellation preserves unassigned followers
   assert.equal(staying.players.some(p => p.name === 'Leaving'), false);
 });
 test('both peer profiles keep their equipped Flow and a guest X press reaches the same authoritative input path',async t=>{const prior=globalThis.Peer,network=peerNetwork();globalThis.Peer=network.Peer;const inputs=[];let host,guest;host=new OnlineSession({onConnected(){host.startRound();},onInput:i=>inputs.push(i)});guest=new OnlineSession({onConnected(){guest.startRound();}});t.after(()=>{host.close();guest.close();globalThis.Peer=prior;});host.selectedFlow='leftleg-power';guest.selectedFlow='take-flight';const code=await host.create('H','malicia');await guest.join(code,'G','raven');await flush();assert.equal(host.players.find(p=>p.id===0).flow,'leftleg-power');assert.equal(host.players.find(p=>p.id===1).flow,'take-flight');assert.equal(guest.players.find(p=>p.id===1).flow,'take-flight');guest.sendInput({flow:true});await flush();assert.equal(inputs.at(-1).flow,true);});
+
+for(const fault of ['holdQueueOpen','holdQueueJoins'])test(`matchmaking recovers instead of hanging when ${fault} stalls the rendezvous`,async t=>{
+ const {add,network,events}=queueHarness(t);t.mock.timers.enable({apis:['setTimeout']});
+ const host=add(),guest=add();const first=host.queue('Host','ice','standard-1v1');await settleQueue();
+ network.faults[fault]=true;const second=guest.queue('Guest','raven','standard-1v1');await settleQueue();
+ assert.equal(host.connected,false);assert.equal(guest.connected,false);
+ network.faults[fault]=false;t.mock.timers.tick(22001);await settleQueue();t.mock.timers.tick(1000);await settleQueue();
+ await Promise.all([first,second]);assert.equal(host.connected,true);assert.equal(guest.connected,true);
+ assert.equal(events.every(e=>e.disconnected.length===0),true);
+});

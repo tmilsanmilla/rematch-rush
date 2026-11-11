@@ -1,0 +1,6 @@
+{
+  "package": "@neon/auth",
+  "version": "0.8.2",
+  "entry": "createAuthClient",
+  "sha256": "310cf3b88e18e588df8cf22fdb1716e37e52bb2db8b7e34eb3bbff58aeaee1d6"
+}

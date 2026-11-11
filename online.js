@@ -1,7 +1,7 @@
 import {FLOW_IDS} from './flow.js?v=1';
 import { MATCH_RULES, ONLINE_FORMATS, ROOM_ALPHABET, validRoomCode, normalizeRoomConfig, humanSlots, playerSlots, rulesFor } from './match-rules.js?v=2';
 export { normalizeRoomConfig } from './match-rules.js?v=2';
-import { selectBotCharacter, balanceBotCharacters } from './bot-brain.js?v=4';
+import { selectBotCharacter, balanceBotCharacters } from './bot-brain.js?v=6';
 
 /**
  * Host-authoritative one- and two-player teams over PeerJS 1.5.5 / WebRTC.
@@ -113,7 +113,7 @@ function peerError(error) {
 // A transient rendezvous elects one waiting browser as queue coordinator. Its
 // peer is separate from the actual match peer, so freeing a full queue never
 // closes a running game. No fake opponent or code-entry fallback is inserted.
-const QUEUE_PROTOCOL = `${PROTOCOL}-queue`;
+const QUEUE_PROTOCOL = `${PROTOCOL}-ready2-queue`;
 class MatchmakingQueue {
   constructor({ onProgress, onAbort }) {
     Object.assign(this, { onProgress, onAbort, records: new Map(), epoch: 0, closed: false, assigned: false, settled: false, completed: false });
@@ -173,6 +173,12 @@ class MatchmakingQueue {
     const epoch = this.epoch, record = { connection, joined: false, ack: false, lastReceived: Date.now() };
     this.records.set(connection, record);
     const current = () => !this.closed && epoch === this.epoch && this.records.get(connection) === record;
+    // A signaling peer can open while its WebRTC rendezvous never does. The
+    // peer-open timer has already ended, so this handshake needs its own fence.
+    record.handshakeTimer = setTimeout(() => {
+      if (!current()) return;
+      if (incoming) this._drop(record); else this._retry();
+    }, CONNECT_TIMEOUT);
     connection.on('open', () => {
       if (!current()) return;
       if (incoming && this.assigned) { this._send(connection, { type: 'retry' }); return; }
@@ -194,16 +200,18 @@ class MatchmakingQueue {
         if (data.type !== 'join' || record.joined) return;
         if (this.assigned || [...this.records.values()].filter(item => item.joined).length >= this.required - 1) { this._send(connection, { type: 'retry' }); return; }
         record.joined = true;
+        clearTimeout(record.handshakeTimer);
         const count = 1 + [...this.records.values()].filter(item => item.joined).length;
         this.onProgress(count);
         for (const item of this.records.values()) if (item.joined) this._send(item.connection, { type: 'waiting', count });
         if (count === this.required) this._assign();
       } else {
-        if (data.type === 'waiting' && Number.isInteger(data.count) && data.count >= 1 && data.count <= this.required) this.onProgress(data.count);
+        if (data.type === 'waiting' && Number.isInteger(data.count) && data.count >= 1 && data.count <= this.required) { clearTimeout(record.handshakeTimer); this.onProgress(data.count); }
         else if (data.type === 'retry' && !this.assigned) this._retry();
         else if (data.type === 'abort') this._abort(new Error('A matched player left before the game connected. Join the queue again.'));
         else if (data.type === 'assignment' && !this.assigned && validRoomCode(data.roomCode || '') && /^[a-f0-9]{48}$/.test(data.admissionToken || '')) {
           this.assigned = true;
+          clearTimeout(record.handshakeTimer);
           this._send(connection, { type: 'ack', roomCode: data.roomCode, admissionToken: data.admissionToken });
           this._resolve({ roomCode: data.roomCode, admissionToken: data.admissionToken });
         }
@@ -220,6 +228,7 @@ class MatchmakingQueue {
   }
 
   _drop(record) {
+    clearTimeout(record.handshakeTimer);
     this.records.delete(record.connection);
     try { record.connection.close(); } catch (_) { /* Already gone. */ }
     if (this.closed || this.completed) return;
@@ -268,6 +277,7 @@ class MatchmakingQueue {
   _clearTransport() {
     clearTimeout(this.openTimer); clearInterval(this.heartbeat); this.heartbeat = null;
     const peer = this.peer; this.peer = null;
+    for (const record of this.records.values()) clearTimeout(record.handshakeTimer);
     this.records.clear();
     try { peer?.destroy(); } catch (_) { /* No other browser's peer is touched. */ }
   }
