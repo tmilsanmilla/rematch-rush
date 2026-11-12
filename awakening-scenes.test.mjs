@@ -11,7 +11,7 @@ test('every normal/DLSI awakening move has its own stable presentation and recog
  assert.ok(seen.size>=80);assert.ok(poses.size>=10);assert.ok(themes.size>=14);
 });
 test('bicycle, scorpion, header, volley, backheel, trap and feint draw different limbs instead of one shared kick',()=>{
- const poses=['bicycle','scorpion','header','volley','backheel','trap','feint','pass','block'],signatures=new Set();
+ const poses=['bicycle','scorpion','header','volley','backheel','trap','feint','pass','block','rabona','curve','knuckle','roulette'],signatures=new Set();
  for(const pose of poses){const{calls,c}=ctx();drawFootballPose(c,{pose},0);signatures.add(JSON.stringify(calls));}
  assert.equal(signatures.size,poses.length);
 });
@@ -29,4 +29,10 @@ test('a real instantaneous awakening move gets a live themed burst without freez
 test('a refused awakening move never emits an effect or spends its cooldown',()=>{
  const g=new Game(null,{mode:'online',character:'falcon'}),p=g.localPlayer();p.awakened=true;p.awakeningLeft=45;g.state.ball.owner=1;
  assert.equal(activateSkill(g,p,0),false);assert.equal(p.awakeningFx,undefined);assert.equal(p.cooldowns[0],0);
+});
+
+test('additional shot/dribble animations keep recognisable motion and never move the real ball or player',()=>{
+ const examples=[['powershooter','Joker Shot','rabona'],['powershooter','TRIVELA SCREAMER','curve'],['ninja','Mysterious knuckle','knuckle'],['streetdribbler','Ginga Dribbling','roulette']];
+ const signatures=new Set();
+ for(const [character,title,pose] of examples){const g=new Game(null,{mode:'online',gameFormat:'standard-1v1',character}),p=g.localPlayer();g.state.ball.owner=p.id;const fx=awakeningScene(p,{title,slot:0});assert.equal(fx.pose,pose);g.cutscene(2,[title],fx.color,()=>{},{kind:'awakening-pose',actorId:p.id,presentation:fx});const before=JSON.stringify(g.state);const frames=[.15,.45,.75,.95].map(t=>g.cutsceneView(t));assert.equal(JSON.stringify(g.state),before);signatures.add(JSON.stringify(frames.map(v=>[v.players[0].poseRotation,v.players[0].x,v.players[0].y,v.ball.x,v.ball.y,v.ball.z])));for(const v of frames){assert.ok(v.players.every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y)));assert.ok(Number.isFinite(v.ball.z));}}assert.equal(signatures.size,4);assert.equal(awakeningScene({character:'streetdribbler'},{title:'Roleta magnífica'}).pose,'roulette');assert.equal(awakeningScene({character:'streetdribbler'},{title:'Curva de horas extras'}).pose,'curve');
 });

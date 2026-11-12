@@ -12,11 +12,7 @@
     "test:pixel": "node --test pixel-*.test.mjs"
   },
   "dependencies": {
-    "@neon/auth": "0.8.2",
     "jose": "6.2.12",
     "pg": "8.23.1"
-  },
-  "devDependencies": {
-    "esbuild": "0.28.2"
   }
 }
