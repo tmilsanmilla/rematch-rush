@@ -37,6 +37,7 @@ export function initPixelAccountUI({
   const root = document?.getElementById('pixel-account');
   const signIn = document?.getElementById('pixel-account-sign-in');
   const signOut = document?.getElementById('pixel-account-sign-out');
+  const headerSignOut = document?.getElementById('header-sign-out');
   const discover = document?.getElementById('pixel-account-discover');
   const name = document?.getElementById('pixel-account-name');
   const message = document?.getElementById('pixel-account-status');
@@ -81,6 +82,7 @@ export function initPixelAccountUI({
     root.hidden = !available;
     signIn.hidden = authenticated;
     signOut.hidden = !authenticated;
+    if(headerSignOut){headerSignOut.hidden=!authenticated;headerSignOut.disabled=busy;}
     name.hidden = !authenticated;
     signIn.disabled = busy;
     signOut.disabled = busy;
@@ -261,7 +263,7 @@ export function initPixelAccountUI({
 
   const onDiscover = () => { void startDiscovery(); };
   const onSignIn = () => { void startSignIn(); };
-  const onSignOut = () => { void endSession(); };
+  const onSignOut = () => endSession();
   const onCreate = () => { openCreateConfirmation(); };
   const onConfirmCreate = () => { void startCreate(); };
   const onCancelCreate = () => { closeCreateConfirmation(); };
@@ -269,6 +271,7 @@ export function initPixelAccountUI({
   signIn.addEventListener('click', onSignIn);
   discover?.addEventListener('click', onDiscover);
   signOut.addEventListener('click', onSignOut);
+  headerSignOut?.addEventListener('click', onSignOut);
   returnExisting?.addEventListener('click', onReturnExisting);
   if (hasCreateControls) {
     create.addEventListener('click', onCreate);
@@ -285,6 +288,7 @@ export function initPixelAccountUI({
       signIn.removeEventListener('click', onSignIn);
       discover?.removeEventListener('click', onDiscover);
       signOut.removeEventListener('click', onSignOut);
+      headerSignOut?.removeEventListener('click', onSignOut);
       returnExisting?.removeEventListener('click', onReturnExisting);
       if (hasCreateControls) {
         create.removeEventListener('click', onCreate);

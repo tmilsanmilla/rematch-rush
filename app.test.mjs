@@ -12,7 +12,7 @@ import { ACTION_COOLDOWNS } from './game.js';
 
 function appHarness(savedProfile={money:500}) {
   const nodes = new Map(), listeners = new Map(), intervals = new Map(), windowListeners = new Map();
-  const sessions = [], games = [], storageWrites=[];let accountNotification;
+  const sessions = [], games = [], storageWrites=[],accountMutations=[];let accountNotification,accountModel=null;
   let timerId = 0;
   const node = selector => {
     if (!nodes.has(selector)) nodes.set(selector, {
@@ -32,7 +32,7 @@ function appHarness(savedProfile={money:500}) {
     body: { classList: { toggle() {} }, style: {} },
   };
   const context = {
-    document, FLOW_ROSTER,flowOf,remainingMoveSeconds,ROSTER, getSkills, ACTION_COOLDOWNS,MATCH_RULES,ONLINE_FORMATS,rulesFor,accountSettings,AVATAR_COLORS,AVATAR_FONTS,normaliseProgress,levelProgress,buyFlowSpin,equipFlow,chooseFlow,FLOW_SPIN_PRICES,settleProgress,buySpin,toggleVariant,selectedVariants,variantUnlocks,moveQuests,QUESTS,SPIN_PRICES,crypto:{randomUUID},createGameAccount:options=>{accountNotification=options.onChange;return{current:null,pending:null,refresh:async()=>null,leaderboard:async()=>{throw Error('offline');}};},
+    document, FLOW_ROSTER,flowOf,remainingMoveSeconds,ROSTER, getSkills, ACTION_COOLDOWNS,MATCH_RULES,ONLINE_FORMATS,rulesFor,accountSettings,AVATAR_COLORS,AVATAR_FONTS,normaliseProgress,levelProgress,buyFlowSpin,equipFlow,chooseFlow,FLOW_SPIN_PRICES,settleProgress,buySpin,toggleVariant,selectedVariants,variantUnlocks,moveQuests,QUESTS,SPIN_PRICES,crypto:{randomUUID},createGameAccount:options=>{accountNotification=options.onChange;return{get current(){return accountModel;},pending:null,refresh:async()=>null,mutate:async(action,input)=>{accountMutations.push({action,input});if(!accountModel)throw Error('Sign in');const r=action==='spin'?buySpin(accountModel.profile,input.type,()=>ROSTER.find(c=>c.rarity===(input.type==='lucky'?'rare':'common')).id):action==='flow-spin'?buyFlowSpin(accountModel.profile,input.type,()=> 'take-flight'):null;if(!r)throw Error('Unsupported test operation');accountModel={...accountModel,profile:r.progress};accountNotification({account:accountModel,pending:false});return r;},leaderboard:async()=>{throw Error('offline');}};},
     OnlineSession: class {
       constructor(options) { this.options = options; this.role = 'host'; this.closed = false; this.starts = 0; sessions.push(this); }
       queue(...args) { this.queued = args; return new Promise((resolve, reject) => { this.resolveQueue = resolve; this.rejectQueue = reject; }); }
@@ -62,9 +62,9 @@ function appHarness(savedProfile={money:500}) {
     clearInterval(id) { intervals.delete(id); }, performance: { now: () => 0 },
   };
   const source = readFileSync(new URL('./app.js', import.meta.url), 'utf8').replace(/^import .*;\n/gm, '');
-  runInNewContext(`${source}\nglobalThis.uiHarness = { updateHUD, renderPlaybook, spinRarity, SPIN_ODDS, GAME_FORMATS, newOnlineSession, matchEnded, updateRematchStatus, setGame(value) { game = value; currentScreen = 'game'; }, setLocalTeam(value) { localTeam = value; localPlayerId = value; }, setLocalPlayerId(value) { localPlayerId = value; }, resetHUD() { hudSignature = null; } };`, context);
+  runInNewContext(`${source}\nglobalThis.uiHarness = { spin,spinFlow,settleRound,setReceipt(value){roundReceipt=value;},getProfile(){return profile;}, updateHUD, renderPlaybook, spinRarity, SPIN_ODDS, GAME_FORMATS, newOnlineSession, matchEnded, updateRematchStatus, setGame(value) { game = value; currentScreen = 'game'; }, setLocalTeam(value) { localTeam = value; localPlayerId = value; }, setLocalPlayerId(value) { localPlayerId = value; }, resetHUD() { hudSignature = null; } };`, context);
   return {
-    ...context.uiHarness, node, sessions, games,storageWrites,accountChange:value=>accountNotification(value),
+    ...context.uiHarness, node, sessions, games,storageWrites,accountMutations,accountChange:value=>{accountModel=value.account;accountNotification(value);},
     key(key) { windowListeners.get('keydown')({key,target:{tagName:'BODY'},preventDefault(){},stopImmediatePropagation(){}}); },
     click(action, key, detail = 0, character, format, spin) {
       const button = { dataset: { action, key, character, format, spin } };
@@ -193,9 +193,9 @@ test('a ready awakening explains possession requirements across the roster', () 
   }
 });
 
-test('every spin result has Spin again and retains equip and roster controls, including duplicates', () => {
+test('every spin result has Spin again and retains equip and roster controls, including duplicates', async () => {
   const app = appHarness();
-  app.click('spin');
+  app.accountChange({account:{accountId:'10000000-0000-4000-8000-000000000001',profile:normaliseProgress({money:500})},pending:false});await app.spin();
   assert.equal(app.node('#modal .modal-close').disabled, true);
   assert.doesNotMatch(app.node('#modal-content').innerHTML, /data-action="spin-again"/);
   for (let spin = 0; spin < 5; spin++) {
@@ -209,7 +209,7 @@ test('every spin result has Spin again and retains equip and roster controls, in
     assert.equal(app.node('#spins-count').textContent, `$${500-35*(spin+1)}`);
     if (spin > 0) assert.match(result, /Duplicate character/);
     if (spin < 4) {
-      app.click('spin-again');
+      await app.spin();
       assert.equal(app.node('#modal .modal-close').disabled, true);
       assert.match(app.node('#modal-content').innerHTML, /id="spin-reel-name"/);
     }
@@ -479,7 +479,7 @@ test('character cards are ordered Common through Master, with the starter still 
 });
 
 
-test('normal and lucky spin tiers use the exact Arrival of the Best odds', () => {
+test('normal and lucky spin tiers use the exact Arrival of the Best odds', async () => {
   const app = appHarness({money:500,xp:11900,unlocked:['none','manmarker','ice','ninja','falcon']});
   assert.equal(JSON.stringify(app.SPIN_ODDS.normal), JSON.stringify([['common',44],['rare',30],['epic',15],['legendary',8.4],['world class',2.2],['master',.4]]));
   assert.equal(JSON.stringify(app.SPIN_ODDS.lucky), JSON.stringify([['rare',33],['epic',45],['legendary',13],['world class',7],['master',2]]));
@@ -492,12 +492,12 @@ test('normal and lucky spin tiers use the exact Arrival of the Best odds', () =>
     }
     assert.ok(Math.abs(start-100)<1e-10);
   }
-  app.click('lucky-spin'); app.finishSpin();
+  app.accountChange({account:{accountId:'10000000-0000-4000-8000-000000000001',profile:normaliseProgress({money:500,xp:11900})},pending:false});await app.spin(true); app.finishSpin();
   const html=app.node('#modal-content').innerHTML;
   assert.match(html,/\$[0-9]+ remaining/);
   assert.match(html,/data-action="spin-again" data-spin="lucky"/);
   assert.doesNotMatch(html,/>COMMON</);
-  app.click('spin-again',undefined,0,undefined,undefined,'lucky');app.finishSpin();
+  await app.spin(true);app.finishSpin();
   assert.match(app.node('#modal-content').innerHTML,/\$[0-9]+ remaining/);
 });
 
@@ -709,8 +709,17 @@ test('replay UI uses the engine permission so offline humans can skip bot goals'
  const match=state(); Object.assign(match,{phase:'replay',scorer:1,scorerTeam:1}); app.updateHUD(match);
  assert.equal(app.node('#skip-replay').hidden,false); allowed=false; app.updateHUD(match); assert.equal(app.node('#skip-replay').hidden,true);
 });
-test('Flow menu describes all20 real effects, exact prices and level15 lock without spending guest money',()=>{const app=appHarness({money:100});app.click('flows');const html=app.node('#modal-content').innerHTML;assert.match(html,/FIND YOUR FLOW/);assert.match(html,/\$26\.25/);assert.match(html,/\$71\.25/);assert.match(html,/level 15/);for(const f of FLOW_ROSTER)assert.ok(html.includes(f.name));assert.equal(app.node('#wallet-balance').textContent,'$100 · DEVICE');});
+test('Flow menu describes all20 real effects, exact prices and level15 lock without spending guest money',()=>{const app=appHarness({money:100});app.click('flows');const html=app.node('#modal-content').innerHTML;assert.match(html,/FIND YOUR FLOW/);assert.match(html,/\$26\.25/);assert.match(html,/\$71\.25/);assert.match(html,/level 15/);for(const f of FLOW_ROSTER)assert.ok(html.includes(f.name));assert.equal(app.node('#wallet-balance').textContent,'');assert.equal(app.node('#wallet-balance').hidden,true);assert.match(html,/Sign in to earn game money/);assert.match(html,/data-action="flow-spin"[^>]*disabled/);});
 
 test('account control renders a circular pixel initial and exposes persistent avatar controls and Pixel linking',()=>{const app=appHarness({name:'Raven',settings:{avatarColor:'#2e5195',avatarFont:'pixel'}});assert.match(app.node('#profile-avatar').innerHTML,/<rect/);assert.equal(app.node('#profile-avatar').style.backgroundColor,'#2e5195');app.click('profile');const html=app.node('#modal-content').innerHTML;assert.match(html,/Circle color/);assert.match(html,/Initial font/);assert.match(html,/Link account to Pixel Pulse/);assert.match(html,/Highly recommended/);assert.match(html,/Save on this device/);app.click('settings');assert.match(app.node('#modal-content').innerHTML,/Guest progress and preferences are saved only on this device/);});
 
-test('account data never overwrites the guest device save, and failed sync does not masquerade as guest mode',()=>{const app=appHarness({name:'Guest',money:77}),before=app.storageWrites.length,account={accountId:'10000000-0000-4000-8000-000000000001',profile:normaliseProgress({money:88,settings:{name:'Account player',avatarColor:'#2e5195',avatarFont:'pixel'}})};app.accountChange({account,pending:false});assert.equal(app.node('#wallet-balance').textContent,'$88 · ACCOUNT');assert.equal(app.node('#profile-avatar').style.backgroundColor,'#2e5195');assert.equal(app.storageWrites.length,before);app.accountChange({account,pending:false,lastError:'Account sync unavailable'});assert.equal(app.node('#wallet-balance').textContent,'$88 · ACCOUNT');assert.equal(app.node('#account-save-status').hidden,false);assert.equal(app.storageWrites.length,before);app.accountChange({account:null,pending:false});assert.equal(app.node('#wallet-balance').textContent,'$77 · DEVICE');assert.equal(app.node('#profile-name').textContent,'Guest');const saved=JSON.parse(app.storageWrites.at(-1)[1]);assert.equal(saved.money,77);assert.equal(saved.name,'Guest');});
+test('account data never overwrites the guest device save, and failed sync does not masquerade as guest mode',()=>{const app=appHarness({name:'Guest',money:77}),before=app.storageWrites.length,account={accountId:'10000000-0000-4000-8000-000000000001',profile:normaliseProgress({money:88,settings:{name:'Account player',avatarColor:'#2e5195',avatarFont:'pixel'}})};app.accountChange({account,pending:false});assert.equal(app.node('#wallet-balance').textContent,'$88 · ACCOUNT');assert.equal(app.node('#profile-avatar').style.backgroundColor,'#2e5195');assert.equal(app.storageWrites.length,before);app.accountChange({account,pending:false,lastError:'Account sync unavailable'});assert.equal(app.node('#wallet-balance').textContent,'$88 · ACCOUNT');assert.equal(app.node('#account-save-status').hidden,false);assert.equal(app.storageWrites.length,before);app.accountChange({account:null,pending:false});assert.equal(app.node('#wallet-balance').textContent,'');assert.equal(app.node('#wallet-balance').hidden,true);assert.equal(app.node('#profile-name').textContent,'Guest');const saved=JSON.parse(app.storageWrites.at(-1)[1]);assert.equal(saved.money,77);assert.equal(saved.name,'Guest');});
+
+test('guest currency stays inaccessible even with an old device balance and direct purchase actions',async()=>{
+ const app=appHarness({money:9999,xp:11900});await app.spin();await app.spinFlow('normal');
+ assert.equal(app.accountMutations.length,0);assert.equal(app.getProfile().money,9999);assert.equal(app.node('#wallet-balance').hidden,true);assert.equal(app.node('#spin-button').disabled,true);assert.equal(app.node('[data-action="lucky-spin"]').disabled,true);assert.equal(app.node('#spins-count').textContent,'Account only');assert.match(app.node('#toast').textContent,/Sign in/);
+});
+test('guest match settlement keeps XP but awards no game money and does not alter the old device balance',async()=>{
+ const app=appHarness({money:77});app.setReceipt({id:'guest-no-currency',account:false,settled:false,character:'none',format:'bot-standard'});
+ await app.settleRound({score:[1,0],players:[{id:0,stats:{xp:100,goals:1}}]});assert.equal(app.getProfile().money,77);assert.equal(app.getProfile().xp,100);assert.equal(app.accountMutations.length,0);assert.doesNotMatch(app.node('#match-earnings').textContent,/\$/);assert.match(app.node('#match-earnings').textContent,/Sign in to earn game money/);
+});

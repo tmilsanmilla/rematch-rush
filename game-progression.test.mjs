@@ -1,3 +1,4 @@
+import {settleProgress} from './progression.js';
 import {Game as LegacyGame} from './server/legacy-stage1/game.js';
 import test from 'node:test';import assert from 'node:assert/strict';import {randomUUID,createHash} from 'node:crypto';
 import {Game} from './game.js';
@@ -68,3 +69,14 @@ test('a pending account save cannot replay into a different signed-in account',a
 test('a late confirmed original-account response cannot overwrite the next signed-in account',async()=>{let actor=A,complete;const changes=[],api=createGameAccount({pendingStorage:null,onChange:s=>changes.push(s),fetchImpl:async(url)=>{if(url.endsWith('status'))return{ok:true,json:async()=>({available:true,authenticated:true,accountId:actor,profile:{money:actor===A?91:5}})};return new Promise(resolve=>{complete=()=>resolve({ok:true,json:async()=>({profile:{money:999,settings:{name:'Original'}}})});});}});await api.refresh();const pending=api.mutate('preferences',{settings:{name:'Original'}});actor=B;await api.refresh();complete();await assert.rejects(pending,/original account save was confirmed/i);assert.equal(api.current.accountId,B);assert.equal(api.current.profile.money,5);assert.equal(api.pending,null);assert.equal(changes.at(-1).lastReward,null);});
 
 test('a confirmed owner-bound retry restores account availability after a transient sync failure',async()=>{let offline=false;const api=createGameAccount({pendingStorage:null,fetchImpl:async url=>{if(url.endsWith('status')){if(offline)throw Error('offline');return{ok:true,json:async()=>({available:true,authenticated:true,accountId:A,profile:{money:91}})};}return{ok:!offline,status:offline?503:200,json:async()=>offline?{error:'offline',uncertain:true}:{profile:{money:91}}};}});await api.refresh();offline=true;await assert.rejects(api.mutate('preferences',{settings:{name:'Owner'}}));await api.refresh();assert.equal(api.available,false);offline=false;await api.retry();assert.equal(api.available,true);assert.equal(api.pending,null);assert.equal(api.current.accountId,A);});
+
+test('a guest currency opt-out retains existing device money while authenticated settlement still earns its normal reward',()=>{
+ const match={matchId:'account-money-only',character:'none',score:[1,0],team:0,stats:{goals:1,xp:100},format:'bot-standard'};
+ const guest=settleProgress({money:77},{...match,earnMoney:false}),account=settleProgress({money:77},match);
+ assert.equal(guest.money,0);assert.equal(guest.progress.money,77);assert.equal(guest.xp,100);assert.ok(account.money>0);assert.equal(account.progress.money,77+account.money);
+});
+test('anonymous spin, Flow purchase and match-reward requests cannot reach account currency storage',async()=>{
+ let calls=0;const handler=createGameHandler({getService:()=>({run:()=>{calls++;throw Error('Must not reach currency storage');}})});
+ for(const action of ['spin','flow-spin','finish']){const response=await handler(new Request(ORIGIN+'/api/game/'+action,{method:'POST',headers:{Origin:ORIGIN,'Content-Type':'application/json'},body:'{}'}));assert.equal(response.status,401);}
+ assert.equal(calls,0);
+});

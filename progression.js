@@ -30,11 +30,11 @@ export function leagueScore(stats={},complete=true){return 10*integer(stats.goal
 export function variantUnlocks(progress,character){const data=progress.characters?.[character]||{},quests=moveQuests(character);return {moves:quests.map(([key,target])=>(data[key]||0)>=target),awakening:(data.points||0)>=300};}
 export function selectedVariants(progress,character){const unlocked=variantUnlocks(progress,character),selected=progress.dlsi?.[character]||{};return {moves:unlocked.moves.map((yes,i)=>yes&&selected.moves?.[i]===true),awakening:unlocked.awakening&&selected.awakening===true};}
 export function toggleVariant(progress,character,slot,value){const next=normaliseProgress(progress),unlocks=variantUnlocks(next,character);next.dlsi[character]||={moves:[],awakening:false};if(slot==='awakening'){if(!unlocks.awakening)throw Error('Earn 300 league points first.');next.dlsi[character].awakening=!!value;}else{if(!Number.isInteger(slot)||!unlocks.moves[slot])throw Error('Complete this move’s quest first.');next.dlsi[character].moves[slot]=!!value;}return next;}
-export function settleProgress(progress,{matchId,character,team=0,score,stats={},isBot=false,format='',abandoned=false,opponentAbandoned=false,leagueOpen=true}){
+export function settleProgress(progress,{matchId,character,team=0,score,stats={},isBot=false,format='',abandoned=false,opponentAbandoned=false,leagueOpen=true,earnMoney=true}){
  const next=normaliseProgress(progress);if(typeof matchId!=='string'||!matchId||next.settled.includes(matchId)||abandoned)return {progress:next,money:0,points:0,xp:0,duplicate:next.settled.includes(matchId)};
  const practice=format==='bot-penalty',penalty=practice||format==='penalties-1v1';
  const xp=isBot?0:Math.floor(Math.max(0,Math.min(MATCH_XP.max,Number(stats.xp)||0))+1e-6);next.xp=Math.min(1000000000,next.xp+xp);
- const money=matchReward({team,score,stats,opponentAbandoned,practice}),points=isBot||penalty||character==='none'||!leagueOpen?0:leagueScore(stats,!opponentAbandoned);
+ const money=earnMoney?matchReward({team,score,stats,opponentAbandoned,practice}):0,points=isBot||penalty||character==='none'||!leagueOpen?0:leagueScore(stats,!opponentAbandoned);
  next.money=Math.min(100000000,next.money+money);next.settled.push(matchId);next.settled=next.settled.slice(-256);
  if(!isBot&&character!=='none'&&!penalty){
   const current=next.characters[character]||{points:0};current.points=(current.points||0)+points;
