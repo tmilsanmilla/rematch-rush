@@ -723,3 +723,8 @@ test('guest match settlement keeps XP but awards no game money and does not alte
  const app=appHarness({money:77});app.setReceipt({id:'guest-no-currency',account:false,settled:false,character:'none',format:'bot-standard'});
  await app.settleRound({score:[1,0],players:[{id:0,stats:{xp:100,goals:1}}]});assert.equal(app.getProfile().money,77);assert.equal(app.getProfile().xp,100);assert.equal(app.accountMutations.length,0);assert.doesNotMatch(app.node('#match-earnings').textContent,/\$/);assert.match(app.node('#match-earnings').textContent,/Sign in to earn game money/);
 });
+
+test('Settings and How to Play expose only the fixed Rematch problem-report URL, with no account details or provider selector',()=>{
+ const app=appHarness({name:'Private player',money:999});
+ for(const action of ['settings','help']){app.click(action);const html=app.node('#modal-content').innerHTML,match=html.match(/<a[^>]*href="([^"]+)"[^>]*>Report a problem/);assert.ok(match);const url=new URL(match[1]);assert.equal(url.href,'https://pixel-pulse-websites.vercel.app/report?site=rematch-rush');assert.deepEqual([...url.searchParams.keys()],['site']);assert.match(match[0],/rel="noopener noreferrer"/);assert.doesNotMatch(match[1],/Private|user|email|token|cookie|role|time/);}
+});

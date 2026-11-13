@@ -15,20 +15,25 @@ profile creation remains explicit and requires the existing one-use CURRENT
 Pixel password proof; a social session alone is insufficient. Rematch has no
 native-password Link route and never adopts the device save or a same-email row.
 
-## Central-owned handoff required
+## Central availability confirmed November 12
 
-The sole Pixel owner must confirm the approved production Google provider and
-its callback/origin configuration, then provide the existing supported Google
-entry that preserves the ORIGINAL Rematch authorization flow and immutable
-Pixel identity. If a consumer selector is necessary, its exact allowlisted wire
-contract must be agreed before Rematch adds it; no guessed `provider`, prompt,
-redirect URL or direct Google OAuth client is configured here. Google-only
-identities without a Pixel password need a separately supported ownership path;
-this request does not weaken current-password proof or invent a password.
+The sole Pixel owner's live contract now confirms normal central Pixel/Google
+sign-in and the shared problem-report service. The fixed existing Rematch
+Continue with Pixel Pulse authorization flow remains the entry; no guessed
+provider selector, Google token, new credential or callback is added here.
+Central availability is no longer a pending service dependency.
 
-Until that contract/configuration is confirmed, no button claims Google is
-enabled and no unchanged product deployment is needed. The independently
-requested Flow/XP/character gameplay release is already live at `21aacd6`.
+Settings and How to Play open only
+`https://pixel-pulse-websites.vercel.app/report?site=rematch-rush`.
+The link sends no user, role, email, timestamp, password, cookie or token in the
+URL. Pixel owns sign-in, report storage and permission to view the private inbox.
+No report is submitted by this local change.
+
+Actual Google-backed receiving acceptance was not rerun in Rematch. Its latest
+published existing-bound Pixel return passed on `aa8ec20`; that is not a new
+Google/first-profile/current-password-proof result. Google-only identities
+without a Pixel password still need the supported ownership path; a social
+session never replaces the required proof or authorizes device/email adoption.
 
 The focused tests use injected, locally signed synthetic tokens only. They
 cover same-owner return across upstream authentication methods, rejection of

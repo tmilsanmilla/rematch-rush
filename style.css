@@ -336,3 +336,5 @@
 @media(max-width:700px){.site-header{min-height:114px;margin-left:5%;margin-right:5%;gap:4px 8px}.site-header nav{min-height:44px;flex-wrap:nowrap}.site-header nav .nav-link{display:block;font-size:10px;padding-left:2px;padding-right:2px}.header-actions{gap:7px}.header-progress .wallet-balance{font-size:10px;padding:4px 6px}.header-progress .level-progress{font-size:9px}.header-sign-out{font-size:10px;padding:8px}.header-actions .icon-button{display:none}}
 
 @media(max-width:700px){.site-header nav .nav-link:last-child{display:block}}
+
+.report-problem-link{text-decoration:none;justify-content:center;margin-top:14px}
